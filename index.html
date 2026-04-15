@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ワンナイト人狼</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>ワンナイト人狼</h1>
+
+  <div class="box">
+    <h2>ルール概要</h2>
+    <p>
+      このゲームは、夜に役職を確認して行動し、朝に話し合って投票するワンナイト人狼です。<br>
+      村陣営は人狼か大狼を1人でも処刑できれば勝ち、人狼陣営は人狼も大狼も処刑されなければ勝ちです。<br>
+      最終的に人狼も大狼もいない場合は平和村となり、誰も処刑されなければ全員勝利、誰かを処刑すると全員負けです。
+    </p>
+  </div>
+
+  <div class="box">
+    <h2>名前入力</h2>
+    <p id="nameInputGuide">名前を入力してください。未入力は自動でプレイヤー名になります。重複した場合は 2、3 を付けて区別します</p>
+    <div id="nameInputs"></div>
+  </div>
+
+  <div class="box">
+    <label for="playerCount">人数を選択</label>
+    <select id="playerCount">
+      <option value="3">3人</option>
+      <option value="4">4人</option>
+      <option value="5">5人</option>
+      <option value="6">6人</option>
+      <option value="7">7人</option>
+      <option value="8">8人</option>
+    </select>
+  </div>
+
+  <div class="box">
+    <label for="patternSelect">パターンを選択</label>
+    <select id="patternSelect"></select>
+    <button id="startBtn">スタート</button>
+  </div>
+
+  <div class="box">
+    <h2>使用役職</h2>
+    <p id="roleList">まだ決定していません</p>
+  </div>
+
+  <div class="box">
+    <h2>夜フェーズ</h2>
+    <p id="nightStatus">まだ開始していません</p>
+
+    <div id="nightActionArea" class="night-action-area hidden">
+      <div id="nightButtons"></div>
+      <p id="nightResult"></p>
+      <button id="nightConfirmBtn" class="hidden">確認して次へ</button>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>投票フェーズ</h2>
+    <p id="voteStatus">まだ開始していません</p>
+    <button id="startVoteBtn" class="hidden">投票フェーズを開始</button>
+
+    <div id="voteActionArea" class="hidden">
+      <div id="voteButtons"></div>
+      <p id="voteResult"></p>
+      <button id="voteNextBtn" class="hidden">確認して次へ</button>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>結果</h2>
+    <p id="finalResult">まだ終了していません</p>
+  </div>
+
+  <div class="box">
+    <h2>進行状況</h2>
+    <p id="progressText">未開始</p>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

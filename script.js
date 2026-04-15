@@ -21,6 +21,9 @@ const playerCount = document.getElementById("playerCount");
 const setupBtn = document.getElementById("setupBtn");
 const roleList = document.getElementById("roleList");
 
+const nameInputGuide = document.getElementById("nameInputGuide");
+const nameInputs = document.getElementById("nameInputs");
+
 const confirmStatus = document.getElementById("confirmStatus");
 const showRoleBtn = document.getElementById("showRoleBtn");
 const currentRole = document.getElementById("currentRole");
@@ -48,6 +51,7 @@ let gameState = {
   initialRoles: [],
   graveCards: [],
   currentRoles: [],
+  playerNames: [],
   confirmIndex: 0,
   roleShown: false,
   phase: "setup",
@@ -115,7 +119,7 @@ function formatPlayerList(playerIndexes) {
     return "なし";
   }
 
-  return playerIndexes.map((index) => `プレイヤー${index + 1}`).join("、");
+  return playerIndexes.map((index) => getPlayerName(index)).join("、");
 }
 
 function formatVoteTarget(target) {
@@ -123,7 +127,7 @@ function formatVoteTarget(target) {
     return "平和村を願う";
   }
 
-  return `プレイヤー${target + 1}`;
+  return getPlayerName(target);
 }
 
 function getPlayerTeam(role, hasWerewolf) {
@@ -160,6 +164,64 @@ function buildRoleListText(roles) {
   return [countLine, "", ...descriptionLines].join("\n");
 }
 
+function getDefaultPlayerName(index) {
+  return `プレイヤー${index + 1}`;
+}
+
+function getPlayerName(index) {
+  return gameState.playerNames[index] || getDefaultPlayerName(index);
+}
+
+function renderNameInputs(count) {
+  nameInputs.innerHTML = "";
+
+  for (let i = 0; i < count; i += 1) {
+    const row = document.createElement("div");
+    row.className = "name-input-row";
+
+    const label = document.createElement("label");
+    label.setAttribute("for", `playerName${i}`);
+    label.textContent = `プレイヤー${i + 1}`;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.id = `playerName${i}`;
+    input.maxLength = 8;
+    input.placeholder = `未入力なら ${getDefaultPlayerName(i)}`;
+
+    row.appendChild(label);
+    row.appendChild(input);
+    nameInputs.appendChild(row);
+  }
+
+  nameInputGuide.textContent = "名前を入力してください。未入力は自動でプレイヤー名になります。重複した場合は 2、3 を付けて区別します";
+}
+
+function normalizePlayerNames(count) {
+  const rawNames = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const input = document.getElementById(`playerName${i}`);
+    const value = input ? input.value.trim() : "";
+    rawNames.push(value === "" ? getDefaultPlayerName(i) : value);
+  }
+
+  const usedCounts = {};
+  const normalized = [];
+
+  rawNames.forEach((name) => {
+    if (!usedCounts[name]) {
+      usedCounts[name] = 1;
+      normalized.push(name);
+    } else {
+      usedCounts[name] += 1;
+      normalized.push(`${name}${usedCounts[name]}`);
+    }
+  });
+
+  return normalized;
+}
+
 function updateConfirmUI() {
   if (gameState.initialRoles.length === 0) {
     confirmStatus.textContent = "まだ配役されていません";
@@ -182,9 +244,9 @@ function updateConfirmUI() {
     return;
   }
 
-  const playerNumber = gameState.confirmIndex + 1;
-  confirmStatus.textContent = `プレイヤー${playerNumber}が画面を確認してください`;
-  progressText.textContent = `役職確認 ${playerNumber} / ${gameState.count}`;
+  const playerName = getPlayerName(gameState.confirmIndex);
+  confirmStatus.textContent = `${playerName}が画面を確認してください`;
+  progressText.textContent = `役職確認 ${gameState.confirmIndex + 1} / ${gameState.count}`;
 
   if (gameState.roleShown) {
     currentRole.textContent = gameState.initialRoles[gameState.confirmIndex];
@@ -234,9 +296,9 @@ function showNightWaitingScreen() {
   }
 
   const action = gameState.nightQueue[gameState.nightIndex];
-  const playerNumber = action.playerIndex + 1;
+  const playerName = getPlayerName(action.playerIndex);
 
-  nightStatus.textContent = `プレイヤー${playerNumber}が画面を確認してください`;
+  nightStatus.textContent = `${playerName}が画面を確認してください`;
   progressText.textContent = `夜行動 ${gameState.nightIndex + 1} / ${gameState.nightQueue.length}`;
   nightActionArea.classList.remove("hidden");
 
@@ -254,10 +316,10 @@ function runNightAction() {
   nightActionArea.classList.remove("hidden");
 
   const action = gameState.nightQueue[gameState.nightIndex];
-  const playerNumber = action.playerIndex + 1;
+  const playerName = getPlayerName(action.playerIndex);
   const role = action.initialRole;
 
-  nightStatus.textContent = `プレイヤー${playerNumber}の夜行動です`;
+  nightStatus.textContent = `${playerName}の夜行動です`;
   progressText.textContent = `夜行動 ${gameState.nightIndex + 1} / ${gameState.nightQueue.length}`;
   appendNightMessage(`あなたの初期役職は ${role} です`);
 
@@ -297,7 +359,7 @@ function handleWerewolfAction(playerIndex) {
   }
 
   const names = otherWerewolves
-    .map((item) => `プレイヤー${item.index + 1}`)
+    .map((item) => getPlayerName(item.index))
     .join("、");
 
   finishNightAction(`仲間の人狼は ${names} です`);
@@ -324,8 +386,8 @@ function showSeerPlayerChoices(playerIndex) {
       continue;
     }
 
-    const button = createChoiceButton(`プレイヤー${i + 1}`, () => {
-      finishNightAction(`プレイヤー${i + 1}の役職は ${gameState.initialRoles[i]} です`);
+    const button = createChoiceButton(`${getPlayerName(i)}`, () => {
+      finishNightAction(`${getPlayerName(i)}の役職は ${gameState.initialRoles[i]} です`);
     });
 
     nightButtons.appendChild(button);
@@ -338,14 +400,14 @@ function handleRobberAction(playerIndex) {
       continue;
     }
 
-    const button = createChoiceButton(`プレイヤー${i + 1}と交換`, () => {
+    const button = createChoiceButton(`${getPlayerName(i)}と交換`, () => {
       const myRoleBefore = gameState.currentRoles[playerIndex];
       const targetRoleBefore = gameState.currentRoles[i];
 
       gameState.currentRoles[playerIndex] = targetRoleBefore;
       gameState.currentRoles[i] = myRoleBefore;
 
-      finishNightAction(`プレイヤー${i + 1}と交換しました。あなたの新しい役職は ${gameState.currentRoles[playerIndex]} です`);
+      finishNightAction(`${getPlayerName(i)}と交換しました。あなたの新しい役職は ${gameState.currentRoles[playerIndex]} です`);
     });
 
     nightButtons.appendChild(button);
@@ -371,9 +433,9 @@ function showVoteWaitingScreen() {
     return;
   }
 
-  const playerNumber = gameState.voteIndex + 1;
-  voteStatus.textContent = `プレイヤー${playerNumber}が画面を確認してください`;
-  progressText.textContent = `投票 ${playerNumber} / ${gameState.count}`;
+  const playerName = getPlayerName(gameState.voteIndex);
+  voteStatus.textContent = `${playerName}が画面を確認してください`;
+  progressText.textContent = `投票 ${gameState.voteIndex + 1} / ${gameState.count}`;
   voteActionArea.classList.remove("hidden");
 
   const startButton = createChoiceButton("投票を開始", () => {
@@ -390,17 +452,17 @@ function runVoteAction() {
   voteActionArea.classList.remove("hidden");
 
   const voterIndex = gameState.voteIndex;
-  const playerNumber = voterIndex + 1;
+  const playerName = getPlayerName(voterIndex);
 
-  voteStatus.textContent = `プレイヤー${playerNumber}の投票です`;
-  progressText.textContent = `投票 ${playerNumber} / ${gameState.count}`;
+  voteStatus.textContent = `${playerName}の投票です`;
+  progressText.textContent = `投票 ${voterIndex + 1} / ${gameState.count}`;
 
   for (let i = 0; i < gameState.count; i += 1) {
     if (i === voterIndex) {
       continue;
     }
 
-    const button = createChoiceButton(`プレイヤー${i + 1}に投票`, () => {
+    const button = createChoiceButton(`${getPlayerName(i)}に投票`, () => {
       recordVote(i);
     });
 
@@ -432,12 +494,12 @@ function finalizeVotes() {
     const weight = gameState.currentRoles[voterIndex] === "村長" ? 2 : 1;
 
     if (target === "peace") {
-      voteSummary.push(`プレイヤー${voterIndex + 1} → 平和村を願う`);
+      voteSummary.push(`${getPlayerName(voterIndex)} → 平和村を願う`);
       return;
     }
 
     voteTotals[target] += weight;
-    voteSummary.push(`プレイヤー${voterIndex + 1} → プレイヤー${target + 1}${weight === 2 ? "（2票）" : ""}`);
+    voteSummary.push(`${getPlayerName(voterIndex)} → ${getPlayerName(target)}${weight === 2 ? "（2票）" : ""}`);
   });
 
   const allPeace = gameState.votes.every((target) => target === "peace");
@@ -465,7 +527,7 @@ function finalizeVotes() {
   if (hunterIndex !== undefined) {
     voteResult.textContent = [
       `処刑対象:${formatPlayerList(gameState.eliminatedPlayers)}`,
-      `プレイヤー${hunterIndex + 1}は狩人でした`,
+      `${getPlayerName(hunterIndex)}は狩人でした`,
     ].join("\n");
 
     const hunterButton = createChoiceButton("狩人の追加処刑へ", () => {
@@ -479,7 +541,7 @@ function finalizeVotes() {
   voteResult.textContent = [
     "投票が終了しました",
     ...voteSummary,
-    `集計結果: ${voteTotals.map((total, index) => `P${index + 1}=${total}`).join(" / ")}`,
+    `集計結果: ${voteTotals.map((total, index) => `${getPlayerName(index)}=${total}`).join(" / ")}`,
     `処刑対象:${formatPlayerList(gameState.eliminatedPlayers)}`,
   ].join("\n");
 
@@ -493,22 +555,22 @@ function startHunterExecution(hunterIndex) {
   voteButtons.innerHTML = "";
   voteResult.textContent = [
     `処刑対象:${formatPlayerList(gameState.eliminatedPlayers)}`,
-    `プレイヤー${hunterIndex + 1}は狩人でした`,
+    `${getPlayerName(hunterIndex)}は狩人でした`,
   ].join("\n");
 
-  voteStatus.textContent = `プレイヤー${hunterIndex + 1}の追加処刑です`;
+  voteStatus.textContent = `${getPlayerName(hunterIndex)}の追加処刑です`;
   progressText.textContent = "狩人の追加処刑";
   voteActionArea.classList.remove("hidden");
 
   hunterTargets.forEach((targetIndex) => {
-    const button = createChoiceButton(`プレイヤー${targetIndex + 1}を吊る`, () => {
+    const button = createChoiceButton(`${getPlayerName(targetIndex)}を吊る`, () => {
       gameState.eliminatedPlayers.push(targetIndex);
       gameState.eliminatedPlayers = [...new Set(gameState.eliminatedPlayers)];
       voteButtons.innerHTML = "";
       voteResult.textContent = [
         `処刑対象:${formatPlayerList(gameState.eliminatedPlayers)}`,
         "",
-        `狩人の効果でプレイヤー${targetIndex + 1}が追加で吊られました`,
+        `狩人の効果で${getPlayerName(targetIndex)}が追加で吊られました`,
       ].join("\n");
       finalizeGame();
     });
@@ -568,7 +630,7 @@ function finalizeGame() {
   }
 
   const playerLines = gameState.currentRoles.map((role, index) => {
-    return `プレイヤー${index + 1}: ${role}、投票先:${formatVoteTarget(gameState.votes[index])}`;
+    return `${getPlayerName(index)}: ${role}、投票先:${formatVoteTarget(gameState.votes[index])}`;
   });
 
   const resultLines = [
@@ -588,6 +650,7 @@ setupBtn.addEventListener("click", () => {
   const shuffledRoles = shuffleArray(roles);
   const initialRoles = shuffledRoles.slice(0, count);
   const graveCards = shuffledRoles.slice(count);
+  const playerNames = normalizePlayerNames(count);
 
   gameState = {
     count,
@@ -595,6 +658,7 @@ setupBtn.addEventListener("click", () => {
     initialRoles: [...initialRoles],
     graveCards: [...graveCards],
     currentRoles: [...initialRoles],
+    playerNames: [...playerNames],
     confirmIndex: 0,
     roleShown: false,
     phase: "confirm",
@@ -607,6 +671,7 @@ setupBtn.addEventListener("click", () => {
   };
 
   roleList.textContent = buildRoleListText(roles);
+  nameInputGuide.textContent = `登録名: ${playerNames.join("、")}`;
   nightStatus.textContent = "まだ開始していません";
   voteStatus.textContent = "まだ開始していません";
   finalResult.textContent = "まだ終了していません";
@@ -614,6 +679,10 @@ setupBtn.addEventListener("click", () => {
   clearNightUI();
   clearVoteUI();
   updateConfirmUI();
+});
+
+playerCount.addEventListener("change", () => {
+  renderNameInputs(Number(playerCount.value));
 });
 
 showRoleBtn.addEventListener("click", () => {
@@ -640,3 +709,5 @@ voteNextBtn.addEventListener("click", () => {
   gameState.voteIndex += 1;
   showVoteWaitingScreen();
 });
+
+renderNameInputs(Number(playerCount.value));

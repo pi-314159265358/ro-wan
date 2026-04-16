@@ -629,19 +629,6 @@ function handleBigWerewolfAction(playerIndex) {
 }
 
 function handleSeerAction(playerIndex) {
-  const lookPlayerButton = createChoiceButton("プレイヤー1人を見る", () => {
-    showSeerPlayerChoices(playerIndex);
-  });
-
-  const lookGraveButton = createChoiceButton("墓地2枚を見る", () => {
-    finishNightAction(`墓地は ${gameState.initialGraveCards.join("、")} です`);
-  });
-
-  nightButtons.appendChild(lookPlayerButton);
-  nightButtons.appendChild(lookGraveButton);
-}
-
-function showSeerPlayerChoices(playerIndex) {
   nightButtons.innerHTML = "";
 
   for (let i = 0; i < gameState.count; i += 1) {
@@ -655,6 +642,12 @@ function showSeerPlayerChoices(playerIndex) {
 
     nightButtons.appendChild(button);
   }
+
+  const lookGraveButton = createChoiceButton("墓地を見る", () => {
+    finishNightAction(`墓地は ${gameState.initialGraveCards.join("、")} です`);
+  });
+
+  nightButtons.appendChild(lookGraveButton);
 }
 
 function handleRobberAction(playerIndex) {

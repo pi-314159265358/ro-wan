@@ -1,6 +1,6 @@
-const STATS_STORAGE_KEY = "one_night_jinro_stats_v3";
+const STATS_STORAGE_KEY = "one_night_jinro_stats_v4";
 const MAX_PLAYERS = 8;
-const MANUAL_ROLE_ORDER = ["人狼", "大狼", "狂人", "占い師", "怪盗", "吸血鬼", "狩人", "村長", "村人"];
+const MANUAL_ROLE_ORDER = ["人狼", "大狼", "狂人", "占い師", "怪盗", "吸血鬼", "狩人", "村長", "モブおじさん", "村人"];
 
 const rolePatterns = {
   3: {
@@ -42,6 +42,7 @@ const roleDescriptions = {
   "吸血鬼": "夜に誰か1人または墓地1枚と役職を交換する",
   "狩人": "吊られたら追加で1人吊れる",
   "村長": "投票が2票になる",
+  "モブおじさん": "誰かを訪問して熱い夜を過ごす",
   "村人": "夜の行動なし",
 };
 
@@ -104,6 +105,7 @@ let gameState = {
   eliminatedPlayers: [],
   isPeaceVillage: false,
   statsRecorded: false,
+  mobVisit: null,
 };
 
 function escapeHtml(value) {
@@ -423,6 +425,23 @@ function normalizePlayerNames(count) {
   return result;
 }
 
+function decideMobVisit(initialRoles, count) {
+  const visitorIndex = initialRoles.findIndex((role) => role === "モブおじさん");
+  if (visitorIndex === -1) {
+    return null;
+  }
+
+  const targets = [];
+  for (let i = 0; i < count; i += 1) {
+    if (i !== visitorIndex) {
+      targets.push(i);
+    }
+  }
+
+  const targetIndex = targets[Math.floor(Math.random() * targets.length)];
+  return { visitorIndex, targetIndex };
+}
+
 function buildNightQueue() {
   return gameState.initialRoles.map((role, index) => ({
     playerIndex: index,
@@ -470,6 +489,7 @@ function createNewGameFromSettings() {
   const initialRoles = shuffled.slice(0, count);
   const graveCards = shuffled.slice(count);
   const playerNames = normalizePlayerNames(count);
+  const mobVisit = decideMobVisit(initialRoles, count);
 
   settingsState.count = count;
   settingsState.pattern = pattern;
@@ -492,6 +512,7 @@ function createNewGameFromSettings() {
     eliminatedPlayers: [],
     isPeaceVillage: false,
     statsRecorded: false,
+    mobVisit,
   };
 
   startBtn.textContent = "再スタート";
@@ -558,16 +579,15 @@ function getInitialWerewolfPartners(playerIndex) {
     .filter((item) => isWerewolfRole(item.role) && item.index !== playerIndex);
 }
 
-function runNightAction() {
+function startRoleAction(action) {
+  const playerIndex = action.playerIndex;
+  const playerName = getPlayerName(playerIndex);
+  const role = action.initialRole;
+
   nightButtons.innerHTML = "";
   nightDetail.textContent = "";
   nightConfirmBtn.classList.add("hidden");
   nightActionArea.classList.remove("hidden");
-
-  const action = gameState.nightQueue[gameState.nightIndex];
-  const playerIndex = action.playerIndex;
-  const playerName = getPlayerName(playerIndex);
-  const role = action.initialRole;
 
   nightStatus.textContent = `${playerName}の夜行動です`;
   nightRoleText.textContent = `あなたの役職は ${role} です`;
@@ -603,9 +623,42 @@ function runNightAction() {
     return;
   }
 
+  if (role === "モブおじさん") {
+    handleMobOjisanAction(playerIndex);
+    return;
+  }
+
   if (role === "狩人" || role === "村長" || role === "村人") {
     finishNightAction(`${role}は夜の行動がありません`);
   }
+}
+
+function runNightAction() {
+  const action = gameState.nightQueue[gameState.nightIndex];
+  const playerIndex = action.playerIndex;
+
+  nightButtons.innerHTML = "";
+  nightDetail.textContent = "";
+  nightConfirmBtn.classList.add("hidden");
+  nightActionArea.classList.remove("hidden");
+
+  if (gameState.mobVisit && gameState.mobVisit.targetIndex === playerIndex) {
+    const visitorName = getPlayerName(gameState.mobVisit.visitorIndex);
+    const playerName = getPlayerName(playerIndex);
+
+    nightStatus.textContent = `${playerName}の夜行動です`;
+    nightRoleText.textContent = "";
+    nightDetail.textContent = `${visitorName}が訪問してきました`;
+
+    const heatButton = createChoiceButton("熱い夜を過ごす", () => {
+      startRoleAction(action);
+    });
+
+    nightButtons.appendChild(heatButton);
+    return;
+  }
+
+  startRoleAction(action);
 }
 
 function handleWerewolfAction(playerIndex) {
@@ -690,6 +743,22 @@ function handleVampireAction(playerIndex) {
   });
 
   nightButtons.appendChild(graveButton);
+}
+
+function handleMobOjisanAction(playerIndex) {
+  nightButtons.innerHTML = "";
+
+  const visitButton = createChoiceButton("誰かを訪問する", () => {
+    if (!gameState.mobVisit) {
+      finishNightAction("訪問相手がいません");
+      return;
+    }
+
+    const targetName = getPlayerName(gameState.mobVisit.targetIndex);
+    finishNightAction(`${targetName}を訪問し熱い夜を過ごしました`);
+  });
+
+  nightButtons.appendChild(visitButton);
 }
 
 function startVotePhase() {
@@ -995,11 +1064,17 @@ function finalizeGame() {
     gameState.statsRecorded = true;
   }
 
-  resultHeadline.textContent = headline;
-  resultMeta.textContent = [
+  const metaLines = [
     `処刑プレイヤーは${formatPlayerList(gameState.eliminatedPlayers)}`,
     `墓地: ${formatGraveSummary()}`,
-  ].join("\n");
+  ];
+
+  if (gameState.mobVisit) {
+    metaLines.push(`${getPlayerName(gameState.mobVisit.visitorIndex)}が${getPlayerName(gameState.mobVisit.targetIndex)}を訪問`);
+  }
+
+  resultHeadline.textContent = headline;
+  resultMeta.textContent = metaLines.join("\n");
 
   resultTableWrap.innerHTML = buildResultTableHtml();
   resultTableWrap.classList.remove("hidden");

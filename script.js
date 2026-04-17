@@ -638,6 +638,7 @@ function runNightAction() {
   const playerIndex = action.playerIndex;
 
   nightButtons.innerHTML = "";
+  nightRoleText.textContent = "";
   nightDetail.textContent = "";
   nightConfirmBtn.classList.add("hidden");
   nightActionArea.classList.remove("hidden");
@@ -647,8 +648,7 @@ function runNightAction() {
     const playerName = getPlayerName(playerIndex);
 
     nightStatus.textContent = `${playerName}の夜行動です`;
-    nightRoleText.textContent = "";
-    nightDetail.textContent = `${visitorName}が訪問してきました`;
+    nightRoleText.textContent = `${visitorName}が訪問してきました`;
 
     const heatButton = createChoiceButton("熱い夜を過ごす", () => {
       startRoleAction(action);

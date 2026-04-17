@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ワンナイト人狼</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>ワンナイト人狼</h1>
+
+  <div class="box">
+    <h2>ルール概要</h2>
+    <ul id="ruleSummary">
+      <li>夜に1人ずつ役職を確認して行動し、<br>昼に話し合って投票する一夜限りの人狼</li>
+      <li>村陣営は人狼を1人でも処刑できれば勝ち</li>
+      <li>人狼陣営は人狼が1人も処刑されなければ勝ち</li>
+      <li>ただし人狼がいなければ平和村となる</li>
+      <li>誰も処刑されなければ全員勝利</li>
+      <li>誰かを処刑すると全員負けとなる</li>
+    </ul>
+  </div>
+
+  <div class="box">
+    <h2>名前入力</h2>
+    <p id="nameInputGuide">人数に応じて名前を入力してください。人数を増やすと追加分だけ入力欄が増えます。</p>
+    <div id="nameInputs"></div>
+  </div>
+
+  <div class="box">
+    <label for="playerCount">人数を選択</label>
+    <select id="playerCount">
+      <option value="3">3人</option>
+      <option value="4">4人</option>
+      <option value="5">5人</option>
+      <option value="6">6人</option>
+      <option value="7">7人</option>
+      <option value="8">8人</option>
+    </select>
+
+    <label for="patternSelect">パターンを選択</label>
+    <select id="patternSelect"></select>
+
+    <button id="startBtn">スタート</button>
+  </div>
+
+  <div class="box hidden" id="manualRoleBox">
+    <h2>配役設定（X）</h2>
+    <div id="manualRoleInputs"></div>
+    <p id="manualRoleCount">0 / 0</p>
+  </div>
+
+  <div class="box">
+    <h2>使用役職</h2>
+    <p id="roleCountLine">まだ決定していません</p>
+    <div id="roleDescriptionWrap" class="table-wrap hidden"></div>
+  </div>
+
+  <div class="box">
+    <h2>夜フェーズ</h2>
+    <p id="nightStatus">まだ開始していません</p>
+
+    <div id="nightActionArea" class="night-action-area hidden">
+      <p id="nightRoleText"></p>
+      <div id="nightButtons"></div>
+      <p id="nightDetail"></p>
+      <button id="nightConfirmBtn" class="hidden">確認して次へ</button>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>投票フェーズ</h2>
+    <p id="voteStatus">まだ開始していません</p>
+    <button id="startVoteBtn" class="hidden">投票フェーズを開始</button>
+
+    <div id="voteActionArea" class="hidden">
+      <div id="voteButtons"></div>
+      <p id="voteResult"></p>
+      <button id="voteNextBtn" class="hidden">確認して次へ</button>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>結果</h2>
+    <p id="resultHeadline">まだ終了していません</p>
+    <p id="resultMeta"></p>
+    <div id="resultTableWrap" class="table-wrap hidden"></div>
+  </div>
+
+  <div class="box">
+    <h2>戦績</h2>
+    <div id="statsTableWrap" class="table-wrap hidden"></div>
+  </div>
+
+  <div class="box">
+    <h2>進行状況</h2>
+    <p id="progressText">未開始</p>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

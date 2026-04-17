@@ -1,0 +1,208 @@
+body {
+  font-family: sans-serif;
+  text-align: center;
+  padding: 30px 20px;
+  background: #f5f5f5;
+}
+
+h1 {
+  margin-bottom: 24px;
+}
+
+.box {
+  background: white;
+  max-width: 760px;
+  margin: 0 auto 20px;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+select,
+button,
+input {
+  font-size: 16px;
+  padding: 10px 14px;
+  margin: 8px;
+  box-sizing: border-box;
+}
+
+#ruleSummary,
+#nameInputGuide,
+#roleCountLine,
+#nightStatus,
+#nightRoleText,
+#nightDetail,
+#voteStatus,
+#voteResult,
+#resultHeadline,
+#resultMeta,
+#progressText,
+#manualRoleCount {
+  margin: 0;
+  line-height: 1.8;
+}
+
+#ruleSummary {
+  font-size: 14px;
+  text-align: left;
+  padding-left: 1.4em;
+}
+
+#nameInputGuide,
+#roleCountLine,
+#nightStatus,
+#nightRoleText,
+#nightDetail,
+#voteStatus,
+#voteResult,
+#resultHeadline,
+#resultMeta,
+#progressText,
+#manualRoleCount {
+  white-space: pre-line;
+}
+
+#nightRoleText {
+  font-weight: bold;
+  min-height: 24px;
+}
+
+.night-action-area {
+  margin-top: 16px;
+}
+
+#nightButtons,
+#voteButtons {
+  margin: 12px 0;
+}
+
+.choice-button {
+  display: inline-block;
+  margin: 6px;
+}
+
+.hidden {
+  display: none;
+}
+
+#nameInputs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.name-input-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 60px 60px;
+  gap: 8px;
+  align-items: center;
+  width: min(100%, 640px);
+}
+
+.name-input-row label {
+  text-align: right;
+}
+
+.name-input-row input {
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.name-move-btn {
+  width: 100%;
+  margin: 0;
+  padding: 10px 0;
+  box-sizing: border-box;
+}
+
+#manualRoleInputs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.manual-role-row {
+  display: grid;
+  grid-template-columns: 120px minmax(80px, 120px);
+  gap: 10px;
+  align-items: center;
+  width: min(100%, 320px);
+}
+
+.manual-role-row label {
+  text-align: right;
+}
+
+.manual-role-row input {
+  width: 100%;
+  margin: 0;
+}
+
+#manualRoleCount {
+  font-weight: bold;
+  margin-top: 12px;
+}
+
+#manualRoleCount.invalid {
+  color: #c62828;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+
+.result-table,
+.stats-table,
+.role-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.result-table th,
+.result-table td,
+.stats-table th,
+.stats-table td,
+.role-table th,
+.role-table td {
+  border: 1px solid #ddd;
+  padding: 10px 12px;
+  vertical-align: top;
+}
+
+.result-table th,
+.stats-table th,
+.role-table th {
+  background: #f2f2f2;
+}
+
+.result-table td:nth-child(1),
+.stats-table td:nth-child(1),
+.role-table td:nth-child(1) {
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .name-input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .name-input-row label {
+    text-align: center;
+  }
+
+  .manual-role-row {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-role-row label {
+    text-align: center;
+  }
+}

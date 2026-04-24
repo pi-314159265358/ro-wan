@@ -1,8 +1,25 @@
 const STATS_STORAGE_KEY = "one_night_jinro_stats_v4";
-const MAX_PLAYERS = 8;
-const MANUAL_ROLE_ORDER = ["人狼", "大狼", "狂人", "占い師", "怪盗", "吸血鬼", "狩人", "村長", "モブおじさん", "村人"];
+const MAX_PLAYERS = 10;
+const LIMITED_MANUAL_ROLES = new Set(["狩人", "村長", "パン屋"]);
+const MANUAL_ROLE_ORDER = [
+  "人狼",
+  "大狼",
+  "狂人",
+  "占い師",
+  "怪盗",
+  "吸血鬼",
+  "狩人",
+  "村長",
+  "モブおじさん",
+  "パン屋",
+  "魔女っ子",
+  "村人",
+];
 
 const rolePatterns = {
+  2: {
+    A: ["大狼", "占い師", "吸血鬼", "狩人"],
+  },
   3: {
     A: ["大狼", "狂人", "占い師", "吸血鬼", "狩人"],
     B: ["人狼", "狂人", "占い師", "怪盗", "狩人"],
@@ -10,26 +27,33 @@ const rolePatterns = {
   },
   4: {
     A: ["大狼", "狂人", "占い師", "吸血鬼", "狩人", "村長"],
-    B: ["人狼", "狂人", "占い師", "怪盗", "吸血鬼", "狩人"],
+    B: ["人狼", "狂人", "占い師", "怪盗", "狩人", "村人"],
     C: ["人狼", "人狼", "占い師", "怪盗", "村人", "村人"],
   },
   5: {
     A: ["人狼", "人狼", "狂人", "占い師", "吸血鬼", "狩人", "村長"],
-    B: ["人狼", "人狼", "狂人", "占い師", "怪盗", "吸血鬼", "狩人"],
+    B: ["人狼", "人狼", "狂人", "占い師", "怪盗", "狩人", "村人"],
     C: ["人狼", "人狼", "狂人", "占い師", "怪盗", "村人", "村人"],
   },
   6: {
     A: ["人狼", "人狼", "狂人", "占い師", "怪盗", "吸血鬼", "狩人", "村長"],
-    B: ["人狼", "人狼", "狂人", "占い師", "怪盗", "狩人", "村長", "村人"],
-    C: ["人狼", "人狼", "狂人", "占い師", "怪盗", "狩人", "村人", "村人"],
+    B: ["人狼", "人狼", "狂人", "占い師", "怪盗", "狩人", "村人", "村人"],
   },
   7: {
     A: ["人狼", "人狼", "狂人", "占い師", "占い師", "怪盗", "吸血鬼", "狩人", "村長"],
     B: ["人狼", "人狼", "狂人", "占い師", "占い師", "怪盗", "狩人", "村人", "村人"],
   },
   8: {
-    A: ["人狼", "人狼", "狂人", "占い師", "占い師", "怪盗", "吸血鬼", "狩人", "村長", "村人"],
-    B: ["人狼", "人狼", "狂人", "占い師", "占い師", "怪盗", "狩人", "村長", "村人", "村人"],
+    A: ["人狼", "人狼", "狂人", "占い師", "占い師", "怪盗", "吸血鬼", "狩人", "村長", "モブおじさん"],
+    B: ["人狼", "人狼", "狂人", "占い師", "占い師", "怪盗", "吸血鬼", "狩人", "村人", "村人"],
+  },
+  9: {
+    A: ["人狼", "人狼", "狂人", "占い師", "占い師", "怪盗", "吸血鬼", "狩人", "村長", "モブおじさん", "パン屋"],
+    B: ["人狼", "人狼", "狂人", "占い師", "占い師", "怪盗", "吸血鬼", "狩人", "村長", "村人", "村人"],
+  },
+  10: {
+    A: ["人狼", "人狼", "狂人", "占い師", "占い師", "怪盗", "吸血鬼", "狩人", "村長", "モブおじさん", "パン屋", "魔女っ子"],
+    B: ["人狼", "人狼", "狂人", "占い師", "占い師", "怪盗", "吸血鬼", "狩人", "村長", "モブおじさん", "村人", "村人"],
   },
 };
 
@@ -43,6 +67,8 @@ const roleDescriptions = {
   "狩人": "吊られたら追加で1人吊れる",
   "村長": "投票が2票になる",
   "モブおじさん": "誰かを訪問して熱い夜を過ごす",
+  "パン屋": "夜に誰か1人にパンを届ける",
+  "魔女っ子": "夜に誰か1人の役職を見る",
   "村人": "夜の行動なし",
 };
 
@@ -105,7 +131,8 @@ let gameState = {
   eliminatedPlayers: [],
   isPeaceVillage: false,
   statsRecorded: false,
-  mobVisit: null,
+  mobVisits: [],
+  breadDelivery: null,
 };
 
 function escapeHtml(value) {
@@ -183,8 +210,34 @@ function isWerewolfRole(role) {
   return role === "人狼" || role === "大狼";
 }
 
+function isTwoPlayerCount(count) {
+  return Number(count) === 2;
+}
+
+function isTwoPlayerGame() {
+  return isTwoPlayerCount(gameState.count);
+}
+
+function getRoleDescription(role, count) {
+  if (isTwoPlayerCount(count)) {
+    if (role === "大狼") {
+      return "墓地をランダム1枚確認できる人狼";
+    }
+    if (role === "占い師") {
+      return "夜に墓地をランダム1枚見る";
+    }
+    if (role === "吸血鬼") {
+      return "夜に相手または墓地1枚とランダムに交換する";
+    }
+    if (role === "狩人") {
+      return "自分が吊られたら相手も吊る";
+    }
+  }
+  return roleDescriptions[role];
+}
+
 function getPlayerTeam(role, hasWerewolfSide) {
-  if (role === "人狼" || role === "大狼") {
+  if (isWerewolfRole(role)) {
     return "人狼";
   }
   if (role === "狂人") {
@@ -235,9 +288,14 @@ function getManualRoleTotal() {
   }, 0);
 }
 
+function getManualRoleMax(role) {
+  return LIMITED_MANUAL_ROLES.has(role) ? 1 : Infinity;
+}
+
 function updatePatternOptions() {
   const count = Number(playerCount.value);
-  const patterns = [...Object.keys(rolePatterns[count]), "X"];
+  const basePatterns = Object.keys(rolePatterns[count]);
+  const patterns = isTwoPlayerCount(count) ? basePatterns : [...basePatterns, "X"];
 
   patternSelect.innerHTML = "";
   patterns.forEach((pattern) => {
@@ -274,6 +332,7 @@ function buildCountSummary(roles) {
 
 function buildRoleDescriptionTable(roles) {
   const { orderedUniqueRoles } = buildCountSummary(roles);
+  const currentCount = Number(playerCount.value);
 
   if (orderedUniqueRoles.length === 0) {
     roleDescriptionWrap.innerHTML = "";
@@ -285,7 +344,7 @@ function buildRoleDescriptionTable(roles) {
     return `
       <tr>
         <td>${escapeHtml(role)}</td>
-        <td>${escapeHtml(roleDescriptions[role])}</td>
+        <td>${escapeHtml(getRoleDescription(role, currentCount))}</td>
       </tr>
     `;
   }).join("");
@@ -369,6 +428,15 @@ function renderNameInputs(count) {
   }
 }
 
+function adjustManualRole(role, delta) {
+  const current = Number(settingsState.manualRoleDrafts[role]) || 0;
+  const max = getManualRoleMax(role);
+  const next = Math.max(0, Math.min(max, current + delta));
+  settingsState.manualRoleDrafts[role] = next;
+  renderManualRoleInputs();
+  updateManualRoleState();
+}
+
 function renderManualRoleInputs() {
   manualRoleInputs.innerHTML = "";
 
@@ -377,25 +445,34 @@ function renderManualRoleInputs() {
     row.className = "manual-role-row";
 
     const label = document.createElement("label");
-    label.setAttribute("for", `manualRole_${role}`);
     label.textContent = role;
 
-    const input = document.createElement("input");
-    input.type = "number";
-    input.min = "0";
-    input.step = "1";
-    input.id = `manualRole_${role}`;
-    input.value = settingsState.manualRoleDrafts[role];
-    input.addEventListener("input", (event) => {
-      const rawValue = event.target.value;
-      const numericValue = Math.max(0, Number(rawValue) || 0);
-      settingsState.manualRoleDrafts[role] = numericValue;
-      event.target.value = String(numericValue);
-      updateManualRoleState();
+    const minusButton = document.createElement("button");
+    minusButton.type = "button";
+    minusButton.className = "manual-role-btn";
+    minusButton.textContent = "−";
+    minusButton.disabled = (Number(settingsState.manualRoleDrafts[role]) || 0) <= 0;
+    minusButton.addEventListener("click", () => {
+      adjustManualRole(role, -1);
+    });
+
+    const value = document.createElement("span");
+    value.className = "manual-role-value";
+    value.textContent = String(settingsState.manualRoleDrafts[role]);
+
+    const plusButton = document.createElement("button");
+    plusButton.type = "button";
+    plusButton.className = "manual-role-btn";
+    plusButton.textContent = "＋";
+    plusButton.disabled = (Number(settingsState.manualRoleDrafts[role]) || 0) >= getManualRoleMax(role);
+    plusButton.addEventListener("click", () => {
+      adjustManualRole(role, 1);
     });
 
     row.appendChild(label);
-    row.appendChild(input);
+    row.appendChild(minusButton);
+    row.appendChild(value);
+    row.appendChild(plusButton);
     manualRoleInputs.appendChild(row);
   });
 }
@@ -425,21 +502,75 @@ function normalizePlayerNames(count) {
   return result;
 }
 
-function decideMobVisit(initialRoles, count) {
-  const visitorIndex = initialRoles.findIndex((role) => role === "モブおじさん");
-  if (visitorIndex === -1) {
+function assignUniqueTargetsWithBacktracking(actorIndexes, count) {
+  if (actorIndexes.length === 0) {
+    return [];
+  }
+
+  const assignments = [];
+  const usedTargets = new Set();
+  const actorOrder = shuffleArray(actorIndexes);
+
+  function dfs(position) {
+    if (position >= actorOrder.length) {
+      return true;
+    }
+
+    const actorIndex = actorOrder[position];
+    const candidates = shuffleArray(
+      Array.from({ length: count }, (_, index) => index).filter(
+        (index) => index !== actorIndex && !usedTargets.has(index)
+      )
+    );
+
+    for (const targetIndex of candidates) {
+      assignments.push({ actorIndex, targetIndex });
+      usedTargets.add(targetIndex);
+
+      if (dfs(position + 1)) {
+        return true;
+      }
+
+      assignments.pop();
+      usedTargets.delete(targetIndex);
+    }
+
+    return false;
+  }
+
+  if (!dfs(0)) {
+    return [];
+  }
+
+  return actorIndexes.map((actorIndex) => assignments.find((item) => item.actorIndex === actorIndex));
+}
+
+function decideMobVisits(initialRoles, count) {
+  const actorIndexes = initialRoles
+    .map((role, index) => ({ role, index }))
+    .filter((item) => item.role === "モブおじさん")
+    .map((item) => item.index);
+
+  return assignUniqueTargetsWithBacktracking(actorIndexes, count).filter(Boolean);
+}
+
+function decideBreadDelivery(initialRoles, count) {
+  const actorIndex = initialRoles.findIndex((role) => role === "パン屋");
+  if (actorIndex === -1) {
     return null;
   }
 
-  const targets = [];
-  for (let i = 0; i < count; i += 1) {
-    if (i !== visitorIndex) {
-      targets.push(i);
-    }
-  }
-
+  const targets = Array.from({ length: count }, (_, index) => index).filter((index) => index !== actorIndex);
   const targetIndex = targets[Math.floor(Math.random() * targets.length)];
-  return { visitorIndex, targetIndex };
+  return { actorIndex, targetIndex };
+}
+
+function getMobVisitForActor(actorIndex) {
+  return gameState.mobVisits.find((item) => item.actorIndex === actorIndex) || null;
+}
+
+function getMobVisitForTarget(targetIndex) {
+  return gameState.mobVisits.find((item) => item.targetIndex === targetIndex) || null;
 }
 
 function buildNightQueue() {
@@ -489,7 +620,8 @@ function createNewGameFromSettings() {
   const initialRoles = shuffled.slice(0, count);
   const graveCards = shuffled.slice(count);
   const playerNames = normalizePlayerNames(count);
-  const mobVisit = decideMobVisit(initialRoles, count);
+  const mobVisits = decideMobVisits(initialRoles, count);
+  const breadDelivery = decideBreadDelivery(initialRoles, count);
 
   settingsState.count = count;
   settingsState.pattern = pattern;
@@ -512,7 +644,8 @@ function createNewGameFromSettings() {
     eliminatedPlayers: [],
     isPeaceVillage: false,
     statsRecorded: false,
-    mobVisit,
+    mobVisits,
+    breadDelivery,
   };
 
   startBtn.textContent = "再スタート";
@@ -628,9 +761,38 @@ function startRoleAction(action) {
     return;
   }
 
+  if (role === "パン屋") {
+    handleBakerAction();
+    return;
+  }
+
+  if (role === "魔女っ子") {
+    handleWitchGirlAction(playerIndex);
+    return;
+  }
+
   if (role === "狩人" || role === "村長" || role === "村人") {
     finishNightAction(`${role}は夜の行動がありません`);
   }
+}
+
+function proceedAfterBreadNotice(action) {
+  nightButtons.innerHTML = "";
+  nightDetail.textContent = "";
+
+  const mobVisit = getMobVisitForTarget(action.playerIndex);
+  if (mobVisit) {
+    appendNightDetail(`${getPlayerName(mobVisit.actorIndex)}が訪問してきました`);
+
+    const heatButton = createChoiceButton("熱い夜を過ごす", () => {
+      startRoleAction(action);
+    });
+
+    nightButtons.appendChild(heatButton);
+    return;
+  }
+
+  startRoleAction(action);
 }
 
 function runNightAction() {
@@ -643,22 +805,21 @@ function runNightAction() {
   nightConfirmBtn.classList.add("hidden");
   nightActionArea.classList.remove("hidden");
 
-  if (gameState.mobVisit && gameState.mobVisit.targetIndex === playerIndex) {
-    const visitorName = getPlayerName(gameState.mobVisit.visitorIndex);
-    const playerName = getPlayerName(playerIndex);
+  const playerName = getPlayerName(playerIndex);
+  nightStatus.textContent = `${playerName}の夜行動です`;
 
-    nightStatus.textContent = `${playerName}の夜行動です`;
-    nightRoleText.textContent = `${visitorName}が訪問してきました`;
+  if (gameState.breadDelivery && gameState.breadDelivery.targetIndex === playerIndex) {
+    appendNightDetail("パンが届きました");
 
-    const heatButton = createChoiceButton("熱い夜を過ごす", () => {
-      startRoleAction(action);
+    const receiveButton = createChoiceButton("受け取る", () => {
+      proceedAfterBreadNotice(action);
     });
 
-    nightButtons.appendChild(heatButton);
+    nightButtons.appendChild(receiveButton);
     return;
   }
 
-  startRoleAction(action);
+  proceedAfterBreadNotice(action);
 }
 
 function handleWerewolfAction(playerIndex) {
@@ -678,11 +839,33 @@ function handleBigWerewolfAction(playerIndex) {
     ? "仲間はいません"
     : `仲間は ${partners.map((item) => getPlayerName(item.index)).join("、")} です`;
 
-  finishNightAction(`${partnerText}\n墓地は ${gameState.initialGraveCards.join("、")} です`);
+  appendNightDetail(partnerText);
+
+  const lookGraveButton = createChoiceButton("墓地を見る", () => {
+    if (isTwoPlayerGame()) {
+      const graveRole = gameState.initialGraveCards[Math.floor(Math.random() * gameState.initialGraveCards.length)];
+      finishNightAction(`墓地の1枚は ${graveRole} です`);
+      return;
+    }
+
+    finishNightAction(`墓地は ${gameState.initialGraveCards.join("、")} です`);
+  });
+
+  nightButtons.appendChild(lookGraveButton);
 }
 
 function handleSeerAction(playerIndex) {
   nightButtons.innerHTML = "";
+
+  if (isTwoPlayerGame()) {
+    const lookGraveButton = createChoiceButton("墓地を見る", () => {
+      const graveRole = gameState.initialGraveCards[Math.floor(Math.random() * gameState.initialGraveCards.length)];
+      finishNightAction(`墓地の1枚は ${graveRole} です`);
+    });
+
+    nightButtons.appendChild(lookGraveButton);
+    return;
+  }
 
   for (let i = 0; i < gameState.count; i += 1) {
     if (i === playerIndex) {
@@ -723,6 +906,31 @@ function handleRobberAction(playerIndex) {
 function handleVampireAction(playerIndex) {
   nightButtons.innerHTML = "";
 
+  if (isTwoPlayerGame()) {
+    const exchangeButton = createChoiceButton("交換する", () => {
+      const otherPlayerIndex = Array.from({ length: gameState.count }, (_, index) => index)
+        .find((index) => index !== playerIndex);
+      const choices = [
+        { type: "player", index: otherPlayerIndex, label: getPlayerName(otherPlayerIndex) },
+        { type: "grave", index: 0, label: "墓地" },
+        { type: "grave", index: 1, label: "墓地" },
+      ];
+      const choice = choices[Math.floor(Math.random() * choices.length)];
+
+      if (choice.type === "player") {
+        swapPlayerRoles(playerIndex, choice.index);
+        finishNightAction(`${choice.label}と交換して、新しい役職は ${gameState.currentRoles[playerIndex]} です`);
+        return;
+      }
+
+      swapPlayerWithGrave(playerIndex, choice.index);
+      finishNightAction(`${choice.label}と交換して、新しい役職は ${gameState.currentRoles[playerIndex]} です`);
+    });
+
+    nightButtons.appendChild(exchangeButton);
+    return;
+  }
+
   for (let i = 0; i < gameState.count; i += 1) {
     if (i === playerIndex) {
       continue;
@@ -749,16 +957,35 @@ function handleMobOjisanAction(playerIndex) {
   nightButtons.innerHTML = "";
 
   const visitButton = createChoiceButton("誰かを訪問する", () => {
-    if (!gameState.mobVisit) {
+    const visit = getMobVisitForActor(playerIndex);
+    if (!visit) {
       finishNightAction("訪問相手がいません");
       return;
     }
 
-    const targetName = getPlayerName(gameState.mobVisit.targetIndex);
-    finishNightAction(`${targetName}を訪問し熱い夜を過ごしました`);
-  });
+finishNightAction(`${getPlayerName(visit.targetIndex)}を訪問し熱い夜を過ごしました`);  });
 
   nightButtons.appendChild(visitButton);
+}
+
+function handleBakerAction() {
+  finishNightAction("誰かにパンを届けました");
+}
+
+function handleWitchGirlAction(playerIndex) {
+  nightButtons.innerHTML = "";
+
+  for (let i = 0; i < gameState.count; i += 1) {
+    if (i === playerIndex) {
+      continue;
+    }
+
+    const button = createChoiceButton(getPlayerName(i), () => {
+      finishNightAction(`${getPlayerName(i)}の役職は ${gameState.initialRoles[i]} です`);
+    });
+
+    nightButtons.appendChild(button);
+  }
 }
 
 function startVotePhase() {
@@ -833,6 +1060,28 @@ function hasWerewolfInFinal() {
   return gameState.currentRoles.some((role) => isWerewolfRole(role));
 }
 
+function resolveTwoPlayerHunterExecution(hunterIndex) {
+  const remainingTargets = Array.from({ length: gameState.count }, (_, index) => index)
+    .filter((index) => !gameState.eliminatedPlayers.includes(index));
+
+  if (remainingTargets.length > 0) {
+    gameState.eliminatedPlayers.push(remainingTargets[0]);
+    gameState.eliminatedPlayers = [...new Set(gameState.eliminatedPlayers)];
+    voteResult.textContent = [
+      `処刑対象:${formatPlayerList(gameState.eliminatedPlayers)}`,
+      `${getPlayerName(hunterIndex)}は狩人でした`,
+      `狩人の効果で${getPlayerName(remainingTargets[0])}も追加で吊られました`,
+    ].join("\n");
+  } else {
+    voteResult.textContent = [
+      `処刑対象:${formatPlayerList(gameState.eliminatedPlayers)}`,
+      `${getPlayerName(hunterIndex)}は狩人でした`,
+    ].join("\n");
+  }
+
+  finalizeGame();
+}
+
 function finalizeVotes() {
   const voteTotals = Array(gameState.count).fill(0);
 
@@ -845,7 +1094,7 @@ function finalizeVotes() {
 
   const allPeace = gameState.votes.every((target) => target === "peace");
   const everyoneOneVote = voteTotals.every((total) => total === 1);
-  gameState.isPeaceVillage = allPeace || everyoneOneVote;
+  gameState.isPeaceVillage = isTwoPlayerGame() ? allPeace : (allPeace || everyoneOneVote);
 
   if (gameState.isPeaceVillage) {
     gameState.eliminatedPlayers = [];
@@ -866,6 +1115,11 @@ function finalizeVotes() {
   );
 
   if (hunterIndex !== undefined) {
+    if (isTwoPlayerGame()) {
+      resolveTwoPlayerHunterExecution(hunterIndex);
+      return;
+    }
+
     voteResult.textContent = [
       `処刑対象:${formatPlayerList(gameState.eliminatedPlayers)}`,
       `${getPlayerName(hunterIndex)}は狩人でした`,
@@ -1069,8 +1323,12 @@ function finalizeGame() {
     `墓地: ${formatGraveSummary()}`,
   ];
 
-  if (gameState.mobVisit) {
-    metaLines.push(`${getPlayerName(gameState.mobVisit.visitorIndex)}が${getPlayerName(gameState.mobVisit.targetIndex)}を訪問`);
+  gameState.mobVisits.forEach((visit) => {
+    metaLines.push(`${getPlayerName(visit.actorIndex)}が${getPlayerName(visit.targetIndex)}を訪問`);
+  });
+
+  if (gameState.breadDelivery) {
+    metaLines.push(`${getPlayerName(gameState.breadDelivery.actorIndex)}が${getPlayerName(gameState.breadDelivery.targetIndex)}にパンを配達`);
   }
 
   resultHeadline.textContent = headline;
@@ -1088,6 +1346,7 @@ function finalizeGame() {
 function refreshConfigUI() {
   updatePatternOptions();
   renderNameInputs(Number(playerCount.value));
+  renderManualRoleInputs();
   updateManualRoleState();
 }
 
@@ -1119,5 +1378,4 @@ voteNextBtn.addEventListener("click", () => {
   showVoteWaitingScreen();
 });
 
-renderManualRoleInputs();
 refreshConfigUI();

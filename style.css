@@ -72,6 +72,10 @@ input {
   margin-top: 16px;
 }
 
+#nightDetail {
+  min-height: 28px;
+}
+
 #nightButtons,
 #voteButtons {
   margin: 12px 0;
@@ -129,19 +133,26 @@ input {
 
 .manual-role-row {
   display: grid;
-  grid-template-columns: 120px minmax(80px, 120px);
-  gap: 10px;
+  grid-template-columns: 120px 56px 64px 56px;
+  gap: 8px;
   align-items: center;
-  width: min(100%, 320px);
+  width: min(100%, 420px);
 }
 
 .manual-role-row label {
   text-align: right;
 }
 
-.manual-role-row input {
+.manual-role-btn {
   width: 100%;
   margin: 0;
+  padding: 10px 0;
+}
+
+.manual-role-value {
+  display: inline-block;
+  text-align: center;
+  font-weight: bold;
 }
 
 #manualRoleCount {
@@ -199,7 +210,7 @@ input {
   }
 
   .manual-role-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 56px 64px 56px;
   }
 
   .manual-role-row label {

@@ -15,9 +15,7 @@
       <li>夜に1人ずつ役職を確認して行動し、<br>昼に話し合って投票する一夜限りの人狼</li>
       <li>村陣営は人狼を1人でも処刑できれば勝ち</li>
       <li>人狼陣営は人狼が1人も処刑されなければ勝ち</li>
-      <li>ただし人狼がいなければ平和村となる</li>
-      <li>誰も処刑されなければ全員勝利</li>
-      <li>誰かを処刑すると全員負けとなる</li>
+      <li>ただし人狼がいなければ平和村となる<br>誰も処刑されなければ全員勝利、<br>誰かを処刑すると全員負けとなる</li>
     </ul>
   </div>
 
@@ -30,12 +28,15 @@
   <div class="box">
     <label for="playerCount">人数を選択</label>
     <select id="playerCount">
-      <option value="3">3人</option>
+      <option value="2">2人</option>
+      <option value="3" selected>3人</option>
       <option value="4">4人</option>
       <option value="5">5人</option>
       <option value="6">6人</option>
       <option value="7">7人</option>
       <option value="8">8人</option>
+      <option value="9">9人</option>
+      <option value="10">10人</option>
     </select>
 
     <label for="patternSelect">パターンを選択</label>
@@ -62,8 +63,8 @@
 
     <div id="nightActionArea" class="night-action-area hidden">
       <p id="nightRoleText"></p>
-      <div id="nightButtons"></div>
       <p id="nightDetail"></p>
+      <div id="nightButtons"></div>
       <button id="nightConfirmBtn" class="hidden">確認して次へ</button>
     </div>
   </div>

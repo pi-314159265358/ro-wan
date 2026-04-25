@@ -1,6 +1,13 @@
 const STATS_STORAGE_KEY = "one_night_jinro_stats_v4";
 const MAX_PLAYERS = 10;
 const LIMITED_MANUAL_ROLES = new Set(["狩人", "村長", "パン屋"]);
+const BASE_RULE_SUMMARY_HTML = `
+  <li>夜に1人ずつ役職を確認して行動し、<br>昼に話し合って投票する一夜限りの人狼</li>
+  <li>村陣営は人狼を1人でも処刑できれば勝ち</li>
+  <li>人狼陣営は人狼が1人も処刑されなければ勝ち</li>
+  <li>ただし人狼がいなければ平和村となる<br>誰も処刑されなければ全員勝利、<br>誰かを処刑すると全員負けとなる</li>
+`;
+
 const MANUAL_ROLE_ORDER = [
   "人狼",
   "大狼",
@@ -19,6 +26,7 @@ const MANUAL_ROLE_ORDER = [
 const rolePatterns = {
   2: {
     A: ["大狼", "占い師", "吸血鬼", "狩人"],
+    B: ["人狼", "占い師", "吸血鬼", "狩人", "村長"],
   },
   3: {
     A: ["大狼", "狂人", "占い師", "吸血鬼", "狩人"],
@@ -76,6 +84,7 @@ const playerCount = document.getElementById("playerCount");
 const patternSelect = document.getElementById("patternSelect");
 const startBtn = document.getElementById("startBtn");
 
+const ruleSummary = document.getElementById("ruleSummary");
 const nameInputGuide = document.getElementById("nameInputGuide");
 const nameInputs = document.getElementById("nameInputs");
 
@@ -133,6 +142,7 @@ let gameState = {
   statsRecorded: false,
   mobVisits: [],
   breadDelivery: null,
+  deadPlayer: null,
 };
 
 function escapeHtml(value) {
@@ -216,6 +226,18 @@ function isTwoPlayerCount(count) {
 
 function isTwoPlayerGame() {
   return isTwoPlayerCount(gameState.count);
+}
+
+function isTwoPlayerPatternBSelected() {
+  return Number(playerCount.value) === 2 && patternSelect.value === "B";
+}
+
+function isTwoPlayerPatternBGame() {
+  return gameState.count === 2 && gameState.pattern === "B";
+}
+
+function updateRuleSummary() {
+  ruleSummary.innerHTML = BASE_RULE_SUMMARY_HTML;
 }
 
 function getRoleDescription(role, count) {
@@ -368,8 +390,24 @@ function buildRoleDescriptionTable(roles) {
 function updateRoleListPreview() {
   const roles = getSelectedRoles();
   const summary = buildCountSummary(roles);
+  const count = Number(playerCount.value);
+  const pattern = patternSelect.value;
 
-  roleCountLine.textContent = summary.text === "" ? "まだ決定していません" : summary.text;
+  let specialNote = "";
+  if (count === 2 && pattern === "A") {
+    specialNote = "A、お互いに投票した場合両方処刑されます";
+  } else if (count === 2 && pattern === "B") {
+    specialNote = "B、3人目の村人陣営の死体があります";
+  }
+
+  if (summary.text === "") {
+    roleCountLine.textContent = "まだ決定していません";
+  } else if (specialNote) {
+    roleCountLine.textContent = `${specialNote}\n${summary.text}`;
+  } else {
+    roleCountLine.textContent = summary.text;
+  }
+
   buildRoleDescriptionTable(roles);
 }
 
@@ -616,7 +654,22 @@ function createNewGameFromSettings() {
     return;
   }
 
-  const shuffled = shuffleArray(roles);
+  let distributedRoles = [...roles];
+  let deadPlayer = null;
+
+  if (count === 2 && pattern === "B") {
+    const deadCandidates = roles.filter((role) => role !== "人狼");
+    const deadRole = deadCandidates[Math.floor(Math.random() * deadCandidates.length)];
+    const remaining = [...roles];
+    remaining.splice(remaining.indexOf(deadRole), 1);
+    distributedRoles = remaining;
+    deadPlayer = {
+      name: "死体",
+      role: deadRole,
+    };
+  }
+
+  const shuffled = shuffleArray(distributedRoles);
   const initialRoles = shuffled.slice(0, count);
   const graveCards = shuffled.slice(count);
   const playerNames = normalizePlayerNames(count);
@@ -646,6 +699,7 @@ function createNewGameFromSettings() {
     statsRecorded: false,
     mobVisits,
     breadDelivery,
+    deadPlayer,
   };
 
   startBtn.textContent = "再スタート";
@@ -823,6 +877,11 @@ function runNightAction() {
 }
 
 function handleWerewolfAction(playerIndex) {
+  if (isTwoPlayerPatternBGame()) {
+    finishNightAction("人狼は夜の行動がありません");
+    return;
+  }
+
   const partners = getInitialWerewolfPartners(playerIndex);
 
   if (partners.length === 0) {
@@ -963,7 +1022,8 @@ function handleMobOjisanAction(playerIndex) {
       return;
     }
 
-finishNightAction(`${getPlayerName(visit.targetIndex)}を訪問し熱い夜を過ごしました`);  });
+    finishNightAction(`${getPlayerName(visit.targetIndex)}を訪問し熱い夜を過ごしました`);
+  });
 
   nightButtons.appendChild(visitButton);
 }
@@ -1094,7 +1154,14 @@ function finalizeVotes() {
 
   const allPeace = gameState.votes.every((target) => target === "peace");
   const everyoneOneVote = voteTotals.every((total) => total === 1);
-  gameState.isPeaceVillage = isTwoPlayerGame() ? allPeace : (allPeace || everyoneOneVote);
+
+  if (isTwoPlayerPatternBGame()) {
+    gameState.isPeaceVillage = allPeace || everyoneOneVote;
+  } else if (isTwoPlayerGame()) {
+    gameState.isPeaceVillage = allPeace;
+  } else {
+    gameState.isPeaceVillage = allPeace || everyoneOneVote;
+  }
 
   if (gameState.isPeaceVillage) {
     gameState.eliminatedPlayers = [];
@@ -1228,7 +1295,17 @@ function buildResultTableHtml() {
         <td>${escapeHtml(formatVoteTarget(gameState.votes[index]))}</td>
       </tr>
     `;
-  }).join("");
+  });
+
+  if (gameState.deadPlayer) {
+    rows.push(`
+      <tr>
+        <td>${escapeHtml(gameState.deadPlayer.name)}</td>
+        <td>${escapeHtml(gameState.deadPlayer.role)}</td>
+        <td>投票なし</td>
+      </tr>
+    `);
+  }
 
   return `
     <table class="result-table">
@@ -1240,7 +1317,7 @@ function buildResultTableHtml() {
         </tr>
       </thead>
       <tbody>
-        ${rows}
+        ${rows.join("")}
       </tbody>
     </table>
   `;
@@ -1323,6 +1400,10 @@ function finalizeGame() {
     `墓地: ${formatGraveSummary()}`,
   ];
 
+  if (gameState.deadPlayer) {
+    metaLines.push(`死体の役職: ${gameState.deadPlayer.role}`);
+  }
+
   gameState.mobVisits.forEach((visit) => {
     metaLines.push(`${getPlayerName(visit.actorIndex)}が${getPlayerName(visit.targetIndex)}を訪問`);
   });
@@ -1345,6 +1426,7 @@ function finalizeGame() {
 
 function refreshConfigUI() {
   updatePatternOptions();
+  updateRuleSummary();
   renderNameInputs(Number(playerCount.value));
   renderManualRoleInputs();
   updateManualRoleState();
@@ -1357,6 +1439,7 @@ playerCount.addEventListener("change", () => {
 
 patternSelect.addEventListener("change", () => {
   settingsState.pattern = patternSelect.value;
+  updateRuleSummary();
   updateManualRoleState();
 });
 

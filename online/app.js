@@ -1,4 +1,5 @@
 import {
+  APP_VERSION,
   DEFAULT_SETTINGS,
   MAX_PLAYERS,
   MIN_PLAYERS,
@@ -10,18 +11,17 @@ import {
   getRoleDescription,
   getSelectedFixedRoles,
   normalizeOnlineSettings,
-} from "../shared/gameLogic.js";
+} from "../shared/gameLogic.js?v=0.5.0";
 
-const WORKER_URL_STORAGE_KEY = "one_night_jinro_online_worker_url_v1";
+const WORKER_URL = "https://one-night-jinro-online.jnpl3-1415926.workers.dev";
 const SESSION_STORAGE_KEY = "one_night_jinro_online_session_v1";
+const LOCAL_STATS_KEY = "one_night_jinro_local_stats_v1";
+const PROCESSED_RESULTS_KEY = "one_night_jinro_processed_results_v1";
 
 const refs = {
-  workerUrlInput: document.getElementById("workerUrlInput"),
-  saveWorkerUrlBtn: document.getElementById("saveWorkerUrlBtn"),
-  workerUrlStatus: document.getElementById("workerUrlStatus"),
-
   playerNameInput: document.getElementById("playerNameInput"),
 
+  createRoomCodeInput: document.getElementById("createRoomCodeInput"),
   createRoomBtn: document.getElementById("createRoomBtn"),
   roomCodeInput: document.getElementById("roomCodeInput"),
   joinRoomBtn: document.getElementById("joinRoomBtn"),
@@ -29,10 +29,17 @@ const refs = {
   reconnectBtn: document.getElementById("reconnectBtn"),
   connectionStatus: document.getElementById("connectionStatus"),
 
+  connectionOverlay: document.getElementById("connectionOverlay"),
+  overlayReconnectBtn: document.getElementById("overlayReconnectBtn"),
+
   roomPanel: document.getElementById("roomPanel"),
   roomCodeText: document.getElementById("roomCodeText"),
   copyRoomCodeBtn: document.getElementById("copyRoomCodeBtn"),
+  inviteUrlInput: document.getElementById("inviteUrlInput"),
+  copyInviteUrlBtn: document.getElementById("copyInviteUrlBtn"),
+  qrImage: document.getElementById("qrImage"),
   phaseText: document.getElementById("phaseText"),
+  hostDisconnectWarning: document.getElementById("hostDisconnectWarning"),
 
   settingPlayerCount: document.getElementById("settingPlayerCount"),
   settingPattern: document.getElementById("settingPattern"),
@@ -52,23 +59,20 @@ const refs = {
   gamePanel: document.getElementById("gamePanel"),
   gameStatusText: document.getElementById("gameStatusText"),
   nightActionButtons: document.getElementById("nightActionButtons"),
+  resultTableWrap: document.getElementById("resultTableWrap"),
+  localStatsPanel: document.getElementById("localStatsPanel"),
+  versionText: document.getElementById("versionText"),
 };
 
 const state = {
   socket: null,
+  socketConnected: false,
+  pendingAction: false,
   snapshot: null,
   privateGame: null,
   self: null,
   session: null,
 };
-
-function loadWorkerUrl() {
-  return localStorage.getItem(WORKER_URL_STORAGE_KEY) || "";
-}
-
-function saveWorkerUrl(value) {
-  localStorage.setItem(WORKER_URL_STORAGE_KEY, value);
-}
 
 function loadSession() {
   try {
@@ -83,22 +87,30 @@ function saveSession(session) {
   localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 }
 
-function normalizeWorkerUrl(value) {
-  return value.trim().replace(/\/+$/, "");
+function loadStats() {
+  try {
+    const raw = localStorage.getItem(LOCAL_STATS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
 }
 
-function getWorkerUrl() {
-  const value = normalizeWorkerUrl(refs.workerUrlInput.value);
+function saveStats(stats) {
+  localStorage.setItem(LOCAL_STATS_KEY, JSON.stringify(stats));
+}
 
-  if (!value) {
-    throw new Error("Worker URLを入力してください");
+function loadProcessedResults() {
+  try {
+    const raw = localStorage.getItem(PROCESSED_RESULTS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
   }
+}
 
-  if (!/^https?:\/\//.test(value)) {
-    throw new Error("Worker URLは https:// から入力してください");
-  }
-
-  return value;
+function saveProcessedResults(processed) {
+  localStorage.setItem(PROCESSED_RESULTS_KEY, JSON.stringify(processed));
 }
 
 function getPlayerName() {
@@ -110,10 +122,6 @@ function setStatus(message) {
   refs.connectionStatus.textContent = message;
 }
 
-function setWorkerStatus(message) {
-  refs.workerUrlStatus.textContent = message;
-}
-
 function setSettingStatus(message) {
   refs.settingStatus.textContent = message;
 }
@@ -122,6 +130,10 @@ function setBusy(isBusy) {
   refs.createRoomBtn.disabled = isBusy;
   refs.joinRoomBtn.disabled = isBusy;
   refs.reconnectBtn.disabled = isBusy;
+}
+
+function getWorkerUrl() {
+  return WORKER_URL;
 }
 
 async function apiFetch(path, options = {}) {
@@ -159,14 +171,22 @@ function closeSocket() {
   }
 }
 
+function setOverlayVisible(visible) {
+  refs.connectionOverlay.classList.toggle("hidden", !visible);
+}
+
 function connectSocket(session) {
   closeSocket();
 
   const socketUrl = buildWebSocketUrl(session.roomId, session.playerId, session.token);
   const socket = new WebSocket(socketUrl);
   state.socket = socket;
+  state.socketConnected = false;
+  setStatus("接続中です");
 
   socket.addEventListener("open", () => {
+    state.socketConnected = true;
+    setOverlayVisible(false);
     setStatus("接続しました");
   });
 
@@ -174,14 +194,19 @@ function connectSocket(session) {
     const message = JSON.parse(event.data);
 
     if (message.type === "snapshot" || message.type === "connected") {
+      state.pendingAction = false;
       state.snapshot = message.snapshot;
       state.privateGame = message.privateGame || null;
       state.self = message.self;
+      state.socketConnected = true;
+      setOverlayVisible(false);
       render();
     }
 
     if (message.type === "error") {
+      state.pendingAction = false;
       setStatus(message.error || "エラーが発生しました");
+      render();
     }
 
     if (message.type === "settingsSaved") {
@@ -190,25 +215,45 @@ function connectSocket(session) {
   });
 
   socket.addEventListener("close", () => {
-    setStatus("切断されました。再接続できます。");
+    state.socketConnected = false;
+    setStatus("切断されました。再接続してください。");
+    setOverlayVisible(true);
     renderReconnectArea();
+    render();
   });
 
   socket.addEventListener("error", () => {
+    state.socketConnected = false;
     setStatus("接続エラーが発生しました");
+    setOverlayVisible(true);
   });
 }
 
 function sendSocket(type, payload = {}) {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
     setStatus("WebSocketが未接続です");
+    setOverlayVisible(true);
     return;
   }
 
+  state.pendingAction = true;
+  clearGameButtons();
   state.socket.send(JSON.stringify({ type, ...payload }));
+  render();
+}
+
+function normalizeTwoDigit(value) {
+  return String(value || "").replace(/\D/g, "").slice(0, 2);
 }
 
 async function createRoom() {
+  const desiredRoomId = normalizeTwoDigit(refs.createRoomCodeInput.value);
+
+  if (refs.createRoomCodeInput.value.trim() && !/^\d{2}$/.test(desiredRoomId)) {
+    setStatus("希望コードは2桁数字で入力してください");
+    return;
+  }
+
   setBusy(true);
 
   try {
@@ -216,6 +261,7 @@ async function createRoom() {
       method: "POST",
       body: JSON.stringify({
         name: getPlayerName(),
+        desiredRoomId: desiredRoomId || "",
       }),
     });
 
@@ -244,10 +290,10 @@ async function createRoom() {
 }
 
 async function joinRoom() {
-  const roomId = refs.roomCodeInput.value.trim();
+  const roomId = normalizeTwoDigit(refs.roomCodeInput.value);
 
-  if (!/^\d{4}$/.test(roomId)) {
-    setStatus("4桁のルームコードを入力してください");
+  if (!/^\d{2}$/.test(roomId)) {
+    setStatus("2桁のルームコードを入力してください");
     return;
   }
 
@@ -314,25 +360,11 @@ function getPhaseLabel(snapshot) {
   if (snapshot.phase === "started") {
     const gamePhase = snapshot.gamePublic?.phase;
 
-    if (gamePhase === "night") {
-      return "夜フェーズ";
-    }
-
-    if (gamePhase === "discussion") {
-      return "議論フェーズ";
-    }
-
-    if (gamePhase === "vote") {
-      return "投票フェーズ";
-    }
-
-    if (gamePhase === "hunterExecution") {
-      return "狩人追加処刑";
-    }
-
-    if (gamePhase === "result") {
-      return "結果";
-    }
+    if (gamePhase === "night") return "夜フェーズ";
+    if (gamePhase === "discussion") return "議論フェーズ";
+    if (gamePhase === "vote") return "投票フェーズ";
+    if (gamePhase === "hunterExecution") return "狩人追加処刑";
+    if (gamePhase === "result") return "結果";
 
     return "ゲーム開始";
   }
@@ -489,6 +521,23 @@ function removePlayer(playerId) {
   sendSocket("removePlayer", { playerId });
 }
 
+function renderInvitePanel() {
+  if (!state.snapshot) {
+    refs.inviteUrlInput.value = "";
+    refs.qrImage.src = "";
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("room", state.snapshot.roomId);
+
+  const inviteUrl = url.toString();
+  refs.inviteUrlInput.value = inviteUrl;
+  refs.qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(inviteUrl)}`;
+}
+
 function renderPlayerTable() {
   refs.playerTableBody.innerHTML = "";
 
@@ -506,7 +555,8 @@ function renderPlayerTable() {
     nameTd.textContent = `${player.name}${player.isHost ? "（ホスト）" : ""}`;
 
     const statusTd = document.createElement("td");
-    statusTd.textContent = player.connected ? "接続中" : "未接続";
+    statusTd.textContent = player.connected ? "接続中" : "切断中";
+    statusTd.className = player.connected ? "connected" : "disconnected";
 
     const actionTd = document.createElement("td");
     const actions = document.createElement("div");
@@ -553,33 +603,35 @@ function clearGameButtons() {
   refs.nightActionButtons.innerHTML = "";
 }
 
+function clearResultTable() {
+  refs.resultTableWrap.innerHTML = "";
+}
+
 function addGameButton(label, onClick) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = label;
+  button.disabled = state.pendingAction;
   button.addEventListener("click", onClick);
   refs.nightActionButtons.appendChild(button);
 }
 
 function sendNightAction(action) {
-  clearGameButtons();
   sendSocket("submitNightAction", { action });
 }
 
 function sendVoteAction(action) {
-  clearGameButtons();
   sendSocket("submitVote", { action });
 }
 
 function sendHunterAction(action) {
-  clearGameButtons();
   sendSocket("submitHunterAction", { action });
 }
 
 function renderNightButtons(privateGame) {
   clearGameButtons();
 
-  if (!privateGame || privateGame.phase !== "night" || privateGame.isNightComplete) {
+  if (!privateGame || privateGame.phase !== "night" || privateGame.isNightComplete || state.pendingAction) {
     return;
   }
 
@@ -593,7 +645,7 @@ function renderNightButtons(privateGame) {
 function renderVoteButtons(privateGame) {
   clearGameButtons();
 
-  if (!privateGame || privateGame.phase !== "vote" || privateGame.isVoteComplete) {
+  if (!privateGame || privateGame.phase !== "vote" || privateGame.isVoteComplete || state.pendingAction) {
     return;
   }
 
@@ -612,6 +664,7 @@ function renderHunterButtons(privateGame) {
     || privateGame.phase !== "hunterExecution"
     || !privateGame.isHunter
     || privateGame.isHunterExecutionComplete
+    || state.pendingAction
   ) {
     return;
   }
@@ -626,7 +679,7 @@ function renderHunterButtons(privateGame) {
 function renderDiscussionButtons() {
   clearGameButtons();
 
-  if (!isHost()) {
+  if (!isHost() || state.pendingAction) {
     return;
   }
 
@@ -635,49 +688,163 @@ function renderDiscussionButtons() {
   });
 }
 
+function formatRemaining(deadlineAt) {
+  if (!deadlineAt) {
+    return "無限";
+  }
+
+  const ms = Math.max(0, Number(deadlineAt) - Date.now());
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes > 0) {
+    return `${minutes}分${String(seconds).padStart(2, "0")}秒`;
+  }
+
+  return `${seconds}秒`;
+}
+
+function getCountdownLine(label, deadlineAt) {
+  return `${label} 残り: ${formatRemaining(deadlineAt)}`;
+}
+
+function updateLocalStatsFromResult(privateGame) {
+  if (!state.snapshot || !privateGame?.result || typeof privateGame.playerIndex !== "number") {
+    return;
+  }
+
+  const result = privateGame.result;
+  const resultKey = `${state.snapshot.roomId}:${result.createdAt}:${privateGame.playerIndex}`;
+  const processed = loadProcessedResults();
+
+  if (processed[resultKey]) {
+    return;
+  }
+
+  const row = result.playerRows[privateGame.playerIndex];
+
+  if (!row) {
+    return;
+  }
+
+  const stats = loadStats();
+  const name = row.name;
+
+  if (!stats[name]) {
+    stats[name] = {
+      wins: 0,
+      games: 0,
+    };
+  }
+
+  stats[name].games += 1;
+
+  if (row.isWinner) {
+    stats[name].wins += 1;
+  }
+
+  processed[resultKey] = true;
+
+  saveStats(stats);
+  saveProcessedResults(processed);
+}
+
+function renderLocalStats() {
+  const stats = loadStats();
+  const names = Object.keys(stats);
+
+  if (names.length === 0) {
+    refs.localStatsPanel.textContent = "ローカル戦績: まだ記録がありません";
+    return;
+  }
+
+  const lines = ["ローカル戦績"];
+
+  names.sort().forEach((name) => {
+    const item = stats[name];
+    const rate = item.games > 0 ? Math.round((item.wins / item.games) * 100) : 0;
+    lines.push(`${name}: ${item.wins}勝/${item.games}戦 勝率${rate}%`);
+  });
+
+  refs.localStatsPanel.textContent = lines.join("\n");
+}
+
 function buildResultText(result) {
   if (!result) {
     return "結果を取得中です。";
   }
 
-  const lines = [
+  return [
     "結果",
     result.headline,
     `勝者: ${result.winnerNames.length > 0 ? result.winnerNames.join("、") : "なし"}`,
     "",
     ...result.metaLines,
-    "",
-    "各プレイヤー",
-  ];
+  ].join("\n");
+}
 
-  result.playerRows.forEach((row) => {
-    const marks = [];
-    if (row.isEliminated) {
-      marks.push("処刑");
-    }
-    if (row.isWinner) {
-      marks.push("勝利");
-    }
+function renderResultTable(result) {
+  clearResultTable();
 
-    lines.push(
-      `${row.name}: ${row.roleHistory} / 投票先: ${row.voteTarget}${marks.length ? ` / ${marks.join("・")}` : ""}`
-    );
+  if (!result) {
+    return;
+  }
+
+  const table = document.createElement("table");
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+
+  ["名前", "役職履歴", "投票先", "処刑", "勝敗"].forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.appendChild(th);
   });
 
-  return lines.join("\n");
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+
+  result.playerRows.forEach((row) => {
+    const tr = document.createElement("tr");
+
+    const values = [
+      row.name,
+      row.roleHistory,
+      row.voteTarget,
+      row.isEliminated ? "処刑" : "",
+      row.isWinner ? "勝利" : "敗北",
+    ];
+
+    values.forEach((value) => {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  refs.resultTableWrap.appendChild(table);
 }
 
 function renderGamePanel() {
   clearGameButtons();
+  clearResultTable();
 
   if (!state.snapshot) {
     refs.gamePanel.classList.add("hidden");
+    refs.localStatsPanel.textContent = "";
     return;
   }
 
   refs.gamePanel.classList.toggle("hidden", state.snapshot.phase !== "started");
 
   if (state.snapshot.phase !== "started") {
+    refs.localStatsPanel.textContent = "";
     return;
   }
 
@@ -705,7 +872,7 @@ function renderGamePanel() {
       `あなたの役職: ${privateGame.initialRole}`,
       `墓地枚数: ${privateGame.graveCount}枚`,
       privateGame.hasDeadPlayer ? "3人目の死体があります" : "",
-      privateGame.nightDeadlineAt ? `夜行動期限: ${new Date(privateGame.nightDeadlineAt).toLocaleTimeString()}` : "夜行動期限: 無限",
+      getCountdownLine("夜行動", privateGame.nightDeadlineAt),
     ].filter(Boolean);
 
     if (privateGame.notifications?.length > 0) {
@@ -729,6 +896,7 @@ function renderGamePanel() {
     }
 
     refs.gameStatusText.textContent = lines.join("\n");
+    refs.localStatsPanel.textContent = "";
     renderNightButtons(privateGame);
     return;
   }
@@ -737,14 +905,12 @@ function renderGamePanel() {
     refs.gameStatusText.textContent = [
       "議論フェーズです。",
       `あなたの役職: ${privateGame.initialRole}`,
-      privateGame.currentRole !== privateGame.initialRole ? `現在の役職: ${privateGame.currentRole}` : "",
       privateGame.nightResult?.text ? `夜行動結果: ${privateGame.nightResult.text}` : "夜行動結果: なし",
-      gamePublic?.discussionDeadlineAt
-        ? `議論期限: ${new Date(gamePublic.discussionDeadlineAt).toLocaleTimeString()}`
-        : "議論期限: 無限",
+      getCountdownLine("議論", gamePublic?.discussionDeadlineAt),
       isHost() ? "ホストは任意で投票フェーズへ進めます。" : "ホストが投票フェーズへ進めるまで待機します。",
     ].filter(Boolean).join("\n");
 
+    refs.localStatsPanel.textContent = "";
     renderDiscussionButtons();
     return;
   }
@@ -753,10 +919,7 @@ function renderGamePanel() {
     const lines = [
       "投票フェーズです。",
       `あなたの役職: ${privateGame.initialRole}`,
-      privateGame.currentRole !== privateGame.initialRole ? `現在の役職: ${privateGame.currentRole}` : "",
-      gamePublic?.voteDeadlineAt
-        ? `投票期限: ${new Date(gamePublic.voteDeadlineAt).toLocaleTimeString()}`
-        : "投票期限: 無限",
+      getCountdownLine("投票", gamePublic?.voteDeadlineAt),
     ].filter(Boolean);
 
     if (privateGame.isVoteComplete) {
@@ -770,6 +933,7 @@ function renderGamePanel() {
     }
 
     refs.gameStatusText.textContent = lines.join("\n");
+    refs.localStatsPanel.textContent = "";
     renderVoteButtons(privateGame);
     return;
   }
@@ -778,9 +942,7 @@ function renderGamePanel() {
     const lines = [
       "狩人追加処刑フェーズです。",
       `${privateGame.hunterName}は狩人でした。`,
-      privateGame.hunterDeadlineAt
-        ? `追加処刑期限: ${new Date(privateGame.hunterDeadlineAt).toLocaleTimeString()}`
-        : "追加処刑期限: 無限",
+      getCountdownLine("狩人追加処刑", privateGame.hunterDeadlineAt),
     ];
 
     if (privateGame.isHunter) {
@@ -795,12 +957,16 @@ function renderGamePanel() {
     }
 
     refs.gameStatusText.textContent = lines.join("\n");
+    refs.localStatsPanel.textContent = "";
     renderHunterButtons(privateGame);
     return;
   }
 
   if (privateGame.phase === "result") {
+    updateLocalStatsFromResult(privateGame);
     refs.gameStatusText.textContent = buildResultText(privateGame.result);
+    renderResultTable(privateGame.result);
+    renderLocalStats();
     return;
   }
 
@@ -810,6 +976,16 @@ function renderGamePanel() {
   ].join("\n");
 }
 
+function renderHostDisconnectWarning() {
+  if (!state.snapshot || !isHost()) {
+    refs.hostDisconnectWarning.classList.add("hidden");
+    return;
+  }
+
+  const hasDisconnected = state.snapshot.players.some((player) => !player.connected);
+  refs.hostDisconnectWarning.classList.toggle("hidden", !hasDisconnected);
+}
+
 function render() {
   const hasSnapshot = Boolean(state.snapshot);
 
@@ -817,6 +993,7 @@ function render() {
 
   if (!hasSnapshot) {
     renderReconnectArea();
+    renderGamePanel();
     return;
   }
 
@@ -828,8 +1005,10 @@ function render() {
   refs.roomCodeText.textContent = state.snapshot.roomId;
   refs.phaseText.textContent = getPhaseLabel(state.snapshot);
 
+  renderInvitePanel();
   renderSettings();
   renderPlayerTable();
+  renderHostDisconnectWarning();
 
   refs.hostControls.classList.toggle("hidden", !isHost());
 
@@ -837,7 +1016,8 @@ function render() {
     && state.snapshot.phase === "lobby"
     && playerCount === settings.playerCount
     && playerCount >= MIN_PLAYERS
-    && playerCount <= MAX_PLAYERS;
+    && playerCount <= MAX_PLAYERS
+    && state.snapshot.players.every((player) => player.connected);
 
   refs.startGameBtn.classList.toggle("hidden", !(isHost() && state.snapshot.phase === "lobby"));
   refs.startGameBtn.disabled = !canStart;
@@ -854,15 +1034,10 @@ function render() {
   renderReconnectArea();
 }
 
-refs.saveWorkerUrlBtn.addEventListener("click", () => {
-  const value = normalizeWorkerUrl(refs.workerUrlInput.value);
-  saveWorkerUrl(value);
-  setWorkerStatus(value ? "保存しました" : "未設定です");
-});
-
 refs.createRoomBtn.addEventListener("click", createRoom);
 refs.joinRoomBtn.addEventListener("click", joinRoom);
 refs.reconnectBtn.addEventListener("click", reconnect);
+refs.overlayReconnectBtn.addEventListener("click", reconnect);
 
 refs.copyRoomCodeBtn.addEventListener("click", async () => {
   if (!state.snapshot) {
@@ -871,6 +1046,11 @@ refs.copyRoomCodeBtn.addEventListener("click", async () => {
 
   await navigator.clipboard.writeText(state.snapshot.roomId);
   setStatus("ルームコードをコピーしました");
+});
+
+refs.copyInviteUrlBtn.addEventListener("click", async () => {
+  await navigator.clipboard.writeText(refs.inviteUrlInput.value);
+  setStatus("招待URLをコピーしました");
 });
 
 refs.startGameBtn.addEventListener("click", () => {
@@ -906,7 +1086,11 @@ refs.settingVoteSeconds.addEventListener("change", () => {
 });
 
 refs.roomCodeInput.addEventListener("input", () => {
-  refs.roomCodeInput.value = refs.roomCodeInput.value.replace(/\D/g, "").slice(0, 4);
+  refs.roomCodeInput.value = normalizeTwoDigit(refs.roomCodeInput.value);
+});
+
+refs.createRoomCodeInput.addEventListener("input", () => {
+  refs.createRoomCodeInput.value = normalizeTwoDigit(refs.createRoomCodeInput.value);
 });
 
 populatePlayerCountOptions();
@@ -916,13 +1100,19 @@ populateTimeOptions(refs.settingVoteSeconds, "voteSeconds");
 applySettingsToForm(DEFAULT_SETTINGS);
 refs.currentSettingsText.textContent = buildSettingsText(DEFAULT_SETTINGS);
 
-refs.workerUrlInput.value = loadWorkerUrl();
-state.session = loadSession();
+refs.versionText.textContent = APP_VERSION;
 
-if (refs.workerUrlInput.value) {
-  setWorkerStatus("保存済みです");
-} else {
-  setWorkerStatus("Worker URLを保存してください");
+const roomParam = new URLSearchParams(window.location.search).get("room");
+if (roomParam) {
+  refs.roomCodeInput.value = normalizeTwoDigit(roomParam);
 }
 
+state.session = loadSession();
 renderReconnectArea();
+renderLocalStats();
+
+setInterval(() => {
+  if (state.snapshot?.phase === "started") {
+    renderGamePanel();
+  }
+}, 1000);

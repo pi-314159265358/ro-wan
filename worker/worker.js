@@ -1,4 +1,5 @@
 import {
+  APP_VERSION,
   DEFAULT_SETTINGS,
   MAX_PLAYERS,
   MIN_PLAYERS,
@@ -17,6 +18,8 @@ import {
   resolveNightAction,
   resolveVoteAction,
 } from "../shared/gameLogic.js";
+
+const ROOM_TTL_MS = 60 * 60 * 1000;
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -78,7 +81,7 @@ function randomString(length, alphabet) {
 }
 
 function createRoomCode() {
-  return randomString(4, "0123456789");
+  return randomString(2, "0123456789");
 }
 
 function createId(prefix) {
@@ -90,8 +93,38 @@ function normalizeName(value) {
   return name || "プレイヤー";
 }
 
+function normalizeUniqueName(players, requestedName, excludePlayerId = null) {
+  const baseName = normalizeName(requestedName);
+  const usedNames = new Set(
+    players
+      .filter((player) => player.id !== excludePlayerId)
+      .map((player) => player.name)
+  );
+
+  if (!usedNames.has(baseName)) {
+    return baseName;
+  }
+
+  for (let number = 2; number <= 99; number += 1) {
+    const candidate = `${baseName}${number}`;
+    if (!usedNames.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  return `${baseName}${Date.now() % 1000}`;
+}
+
 function now() {
   return Date.now();
+}
+
+function isRoomExpired(room) {
+  if (!room?.updatedAt) {
+    return false;
+  }
+
+  return now() - room.updatedAt > ROOM_TTL_MS;
 }
 
 function getRoomStub(env, roomId) {
@@ -133,7 +166,7 @@ export class RoomDurableObject {
   }
 
   async alarm() {
-    const room = await this.getRoom();
+    const room = await this.getFreshRoom();
 
     if (!room || room.phase !== "started" || !room.game) {
       return;
@@ -220,6 +253,21 @@ export class RoomDurableObject {
     return this.state.storage.get("room");
   }
 
+  async getFreshRoom() {
+    const room = await this.getRoom();
+
+    if (!room) {
+      return null;
+    }
+
+    if (isRoomExpired(room)) {
+      await this.state.storage.delete("room");
+      return null;
+    }
+
+    return room;
+  }
+
   async saveRoom(room) {
     room.updatedAt = now();
     await this.state.storage.put("room", room);
@@ -252,6 +300,7 @@ export class RoomDurableObject {
 
   buildPublicSnapshot(room) {
     return {
+      version: APP_VERSION,
       roomId: room.roomId,
       phase: room.phase,
       createdAt: room.createdAt,
@@ -305,14 +354,18 @@ export class RoomDurableObject {
   async createRoom(request) {
     const existingRoom = await this.getRoom();
 
-    if (existingRoom) {
-      return jsonResponse({ ok: false, error: "Room already exists" }, 409);
+    if (existingRoom && !isRoomExpired(existingRoom)) {
+      return jsonResponse({ ok: false, error: "そのルームコードは使用中です" }, 409);
+    }
+
+    if (existingRoom && isRoomExpired(existingRoom)) {
+      await this.state.storage.delete("room");
     }
 
     const body = await readJson(request);
     const roomId = String(body.roomId || "").trim();
 
-    if (!/^\d{4}$/.test(roomId)) {
+    if (!/^\d{2}$/.test(roomId)) {
       return jsonResponse({ ok: false, error: "roomId is required" }, 400);
     }
 
@@ -351,7 +404,7 @@ export class RoomDurableObject {
   }
 
   async joinRoom(request) {
-    const room = await this.getRoom();
+    const room = await this.getFreshRoom();
 
     if (!room) {
       return jsonResponse({ ok: false, error: "部屋が見つかりません" }, 404);
@@ -363,7 +416,7 @@ export class RoomDurableObject {
     const existingPlayer = this.findPlayerByToken(room, requestedPlayerId, requestedToken);
 
     if (existingPlayer) {
-      existingPlayer.name = normalizeName(body.name || existingPlayer.name);
+      existingPlayer.name = normalizeUniqueName(room.players, body.name || existingPlayer.name, existingPlayer.id);
       await this.saveRoom(room);
 
       return jsonResponse({
@@ -395,7 +448,7 @@ export class RoomDurableObject {
     const player = {
       id: createId("player"),
       token: createId("token"),
-      name: normalizeName(body.name),
+      name: normalizeUniqueName(room.players, body.name),
       connected: false,
       joinedAt: now(),
     };
@@ -421,7 +474,7 @@ export class RoomDurableObject {
       return jsonResponse({ ok: false, error: "WebSocket required" }, 426);
     }
 
-    const room = await this.getRoom();
+    const room = await this.getFreshRoom();
 
     if (!room) {
       return jsonResponse({ ok: false, error: "部屋が見つかりません" }, 404);
@@ -498,7 +551,7 @@ export class RoomDurableObject {
       return;
     }
 
-    const room = await this.getRoom();
+    const room = await this.getFreshRoom();
 
     if (!room) {
       await this.sendError(playerId, "部屋が見つかりません");
@@ -619,6 +672,11 @@ export class RoomDurableObject {
 
     if (room.players.length !== settings.playerCount) {
       await this.sendError(playerId, `${settings.playerCount}人ちょうどで開始できます`);
+      return;
+    }
+
+    if (room.players.some((player) => !player.connected)) {
+      await this.sendError(playerId, "切断中の参加者がいるため開始できません");
       return;
     }
 
@@ -852,7 +910,7 @@ export class RoomDurableObject {
       return;
     }
 
-    player.name = normalizeName(message.name);
+    player.name = normalizeUniqueName(room.players, message.name, playerId);
 
     await this.saveRoom(room);
     await this.broadcastSnapshot();
@@ -867,7 +925,7 @@ export class RoomDurableObject {
 
     this.sessions.delete(playerId);
 
-    const room = await this.getRoom();
+    const room = await this.getFreshRoom();
     if (!room) {
       return;
     }
@@ -905,7 +963,7 @@ export class RoomDurableObject {
   }
 
   async broadcastSnapshot() {
-    const room = await this.getRoom();
+    const room = await this.getFreshRoom();
 
     if (!room) {
       return;
@@ -946,13 +1004,37 @@ export default {
         return jsonCors({
           ok: true,
           service: "one-night-jinro-online",
+          version: APP_VERSION,
         });
       }
 
       if (url.pathname === "/api/rooms" && request.method === "POST") {
         const body = await readJson(request);
+        const desiredRoomId = String(body.desiredRoomId || "").trim();
 
-        for (let attempt = 0; attempt < 10; attempt += 1) {
+        if (desiredRoomId) {
+          if (!/^\d{2}$/.test(desiredRoomId)) {
+            return jsonCors({ ok: false, error: "希望コードは2桁数字で入力してください" }, 400);
+          }
+
+          const stub = getRoomStub(env, desiredRoomId);
+
+          const response = await stub.fetch(new Request("https://room/create", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              roomId: desiredRoomId,
+              name: body.name,
+              settings: body.settings,
+            }),
+          }));
+
+          return withCors(response);
+        }
+
+        for (let attempt = 0; attempt < 100; attempt += 1) {
           const roomId = createRoomCode();
           const stub = getRoomStub(env, roomId);
 
@@ -973,10 +1055,10 @@ export default {
           }
         }
 
-        return jsonCors({ ok: false, error: "部屋作成に失敗しました" }, 500);
+        return jsonCors({ ok: false, error: "空いているルームコードがありません" }, 500);
       }
 
-      const roomJoinMatch = url.pathname.match(/^\/api\/rooms\/(\d{4})\/join$/);
+      const roomJoinMatch = url.pathname.match(/^\/api\/rooms\/(\d{2})\/join$/);
       if (roomJoinMatch && request.method === "POST") {
         const roomId = roomJoinMatch[1];
         const stub = getRoomStub(env, roomId);
@@ -986,7 +1068,7 @@ export default {
         return withCors(response);
       }
 
-      const socketMatch = url.pathname.match(/^\/api\/rooms\/(\d{4})\/socket$/);
+      const socketMatch = url.pathname.match(/^\/api\/rooms\/(\d{2})\/socket$/);
       if (socketMatch && request.method === "GET") {
         const roomId = socketMatch[1];
         const stub = getRoomStub(env, roomId);

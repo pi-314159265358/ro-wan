@@ -1,3 +1,5 @@
+export const APP_VERSION = "v0.5.0";
+
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 10;
 
@@ -117,14 +119,6 @@ export function isTwoPlayerCount(count) {
 
 export function isTwoPlayerPatternB(count, pattern) {
   return Number(count) === 2 && pattern === "B";
-}
-
-export function getRequiredRoleTotal(playerCount) {
-  return Number(playerCount) + 2;
-}
-
-export function getManualRoleMax(role) {
-  return LIMITED_MANUAL_ROLES.has(role) ? 1 : Infinity;
 }
 
 export function getAvailablePatterns(playerCount, options = {}) {
@@ -421,10 +415,6 @@ export function createInitialGameSetup(playerNames, settings, random = Math.rand
     initialGraveCards: [...graveCards],
     currentGraveCards: [...graveCards],
     playerNames: playerNames.slice(0, playerCount),
-    nightQueue: initialRoles.map((role, index) => ({
-      playerIndex: index,
-      initialRole: role,
-    })),
     nightActions: Array(playerCount).fill(null),
     nightResults: Array(playerCount).fill(null),
     votes: Array(playerCount).fill(null),
@@ -447,7 +437,6 @@ export function createInitialGameSetup(playerNames, settings, random = Math.rand
     discussionDeadlineAt: null,
     voteStartedAt: null,
     voteDeadlineAt: null,
-    voteCompletedAt: null,
     resultCreatedAt: null,
   };
 }
@@ -583,8 +572,6 @@ function buildBasePlayerView(game, playerIndex) {
     phase: game.phase,
     playerIndex,
     initialRole: game.initialRoles[playerIndex],
-    currentRole: game.currentRoles[playerIndex],
-    roleHistory: game.roleHistories[playerIndex],
     nightResult: game.nightResults[playerIndex],
     voteResult: game.voteResults[playerIndex],
     voteTarget: game.votes[playerIndex],
@@ -1110,13 +1097,13 @@ function buildGameResult(game, nowValue = Date.now()) {
       .map((role, index) => ({ role, index }))
       .filter((item) => getPlayerTeam(item.role, hasWerewolfSide) === "村")
       .map((item) => item.index);
-    headline = `村陣営勝利`;
+    headline = "村陣営勝利";
   } else {
     winnerIndexes = game.currentRoles
       .map((role, index) => ({ role, index }))
       .filter((item) => getPlayerTeam(item.role, hasWerewolfSide) === "人狼")
       .map((item) => item.index);
-    headline = `人狼陣営勝利`;
+    headline = "人狼陣営勝利";
   }
 
   const playerRows = game.playerNames.map((name, index) => {

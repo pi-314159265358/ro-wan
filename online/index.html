@@ -4,54 +4,61 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ワンナイト人狼オンライン</title>
-  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./style.css?v=0.5.0" />
 </head>
 <body>
+  <div id="connectionOverlay" class="connection-overlay hidden">
+    <div class="connection-overlay-card">
+      <h2>通信が切断されました</h2>
+      <p>再接続してください。</p>
+      <button id="overlayReconnectBtn" type="button">再接続</button>
+    </div>
+  </div>
+
   <main class="app">
     <header class="header">
       <h1>ワンナイト人狼オンライン</h1>
-      <p class="sub">部屋作成、参加、同期、サーバー側配役、夜フェーズ</p>
+      <p class="sub">v0.5.0</p>
     </header>
 
-    <section class="box">
-      <h2>接続設定</h2>
-      <p class="help">
-        Cloudflare Worker のURLを入力してください。例：https://one-night-jinro-online.example.workers.dev
-      </p>
-      <div class="row">
-        <input id="workerUrlInput" type="url" placeholder="Worker URL" />
-        <button id="saveWorkerUrlBtn" type="button">保存</button>
-      </div>
-      <p id="workerUrlStatus" class="status"></p>
-    </section>
-
-    <section class="box">
+    <section class="box compact-box">
       <h2>名前</h2>
-      <div class="row">
+      <div class="row one-line">
         <input id="playerNameInput" type="text" maxlength="12" placeholder="プレイヤー名" />
       </div>
     </section>
 
-    <section class="box">
-      <h2>部屋</h2>
-
-      <div class="actions">
+    <section class="box compact-box">
+      <h2>部屋を作成</h2>
+      <p class="help">希望ルームコードは任意です。2桁数字で指定できます。</p>
+      <div class="row one-line">
+        <input
+          id="createRoomCodeInput"
+          type="text"
+          maxlength="2"
+          inputmode="numeric"
+          autocomplete="off"
+          placeholder="希望コード 例: 12"
+        />
         <button id="createRoomBtn" type="button">部屋を作成</button>
       </div>
+    </section>
 
-      <div class="join-area">
+    <section class="box compact-box">
+      <h2>部屋に参加</h2>
+      <div class="row one-line">
         <input
           id="roomCodeInput"
           type="text"
-          maxlength="4"
+          maxlength="2"
           inputmode="numeric"
           autocomplete="off"
-          placeholder="4桁コード"
+          placeholder="2桁コード"
         />
         <button id="joinRoomBtn" type="button">参加</button>
       </div>
 
-      <div id="reconnectArea" class="hidden">
+      <div id="reconnectArea" class="hidden reconnect-area">
         <button id="reconnectBtn" type="button">前回の部屋に再接続</button>
       </div>
 
@@ -61,10 +68,22 @@
     <section id="roomPanel" class="box hidden">
       <h2>ロビー</h2>
 
+      <div id="hostDisconnectWarning" class="warning hidden">
+        切断中の参加者がいます。再接続待ちです。
+      </div>
+
       <div class="room-code-wrap">
         <span>ルームコード</span>
-        <strong id="roomCodeText">----</strong>
+        <strong id="roomCodeText">--</strong>
         <button id="copyRoomCodeBtn" type="button">コピー</button>
+      </div>
+
+      <div id="invitePanel" class="invite-panel">
+        <div class="invite-url-row">
+          <input id="inviteUrlInput" type="text" readonly />
+          <button id="copyInviteUrlBtn" type="button">招待URLコピー</button>
+        </div>
+        <img id="qrImage" class="qr-image" alt="招待QRコード" />
       </div>
 
       <p id="phaseText" class="phase">待機中</p>
@@ -131,10 +150,16 @@
     <section id="gamePanel" class="box hidden">
       <h2>ゲーム画面</h2>
       <p id="gameStatusText">ゲーム開始状態の同期確認中です。</p>
-      <div id="nightActionButtons" class="night-action-buttons"></div>
+      <div id="nightActionButtons" class="game-action-buttons"></div>
+      <div id="resultTableWrap" class="result-table-wrap"></div>
+      <div id="localStatsPanel" class="local-stats-panel"></div>
     </section>
+
+    <footer class="footer">
+      <span id="versionText">v0.5.0</span>
+    </footer>
   </main>
 
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=0.5.0"></script>
 </body>
 </html>

@@ -7,6 +7,8 @@
   --primary: #1f6feb;
   --primary-dark: #1558bd;
   --danger: #c62828;
+  --warning: #fff4cc;
+  --warning-line: #e0b300;
   --shadow: rgba(0, 0, 0, 0.08);
 }
 
@@ -23,7 +25,7 @@ body {
 }
 
 .app {
-  width: min(100%, 820px);
+  width: min(100%, 860px);
   margin: 0 auto;
 }
 
@@ -38,7 +40,7 @@ h1 {
 }
 
 h2 {
-  margin: 0 0 14px;
+  margin: 0 0 12px;
   font-size: 20px;
 }
 
@@ -70,6 +72,10 @@ h3 {
   box-shadow: 0 2px 8px var(--shadow);
 }
 
+.compact-box {
+  padding: 16px 18px;
+}
+
 .row,
 .actions,
 .join-area,
@@ -81,28 +87,40 @@ h3 {
   margin-top: 10px;
 }
 
+.one-line {
+  flex-wrap: nowrap;
+}
+
 input,
 button,
 select {
   font-size: 16px;
-  padding: 10px 12px;
   border-radius: 8px;
 }
 
 input,
 select {
-  flex: 1 1 240px;
+  height: 44px;
+  padding: 8px 12px;
   min-width: 0;
   border: 1px solid var(--line);
   background: #ffffff;
 }
 
+.row input,
+.row select {
+  flex: 1 1 auto;
+}
+
 button {
+  min-height: 44px;
+  padding: 8px 14px;
   border: none;
   background: var(--primary);
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 button:hover {
@@ -127,6 +145,10 @@ button.danger {
   white-space: pre-line;
 }
 
+.reconnect-area {
+  margin-top: 10px;
+}
+
 .room-code-wrap {
   display: flex;
   flex-wrap: wrap;
@@ -136,13 +158,52 @@ button.danger {
 }
 
 #roomCodeText {
-  font-size: 28px;
+  font-size: 32px;
   letter-spacing: 0.12em;
 }
 
 .phase {
   font-weight: 700;
+  margin: 12px 0;
+}
+
+.warning {
+  border: 1px solid var(--warning-line);
+  background: var(--warning);
+  padding: 12px;
+  border-radius: 10px;
+  font-weight: 700;
   margin-bottom: 12px;
+}
+
+.invite-panel {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fafafa;
+  margin-bottom: 12px;
+}
+
+.invite-url-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+#inviteUrlInput {
+  width: 100%;
+}
+
+.qr-image {
+  width: 140px;
+  height: 140px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .settings-panel {
@@ -170,7 +231,6 @@ button.danger {
 
 .settings-grid select {
   width: 100%;
-  margin: 0;
 }
 
 .readonly-settings {
@@ -209,28 +269,85 @@ th {
 .player-actions button {
   padding: 7px 9px;
   font-size: 14px;
+  min-height: 36px;
+}
+
+.connected {
+  color: #087f23;
+  font-weight: 700;
+}
+
+.disconnected {
+  color: var(--danger);
+  font-weight: 700;
 }
 
 #gameStatusText {
   white-space: pre-line;
 }
 
-.night-action-buttons {
+.game-action-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
 }
 
-.night-action-buttons button {
-  flex: 0 1 auto;
+.result-table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+.result-table-wrap table {
+  min-width: 620px;
+}
+
+.local-stats-panel {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fafafa;
+  white-space: pre-line;
+}
+
+.footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 12px 0 24px;
+}
+
+.connection-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.64);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.connection-overlay-card {
+  width: min(100%, 420px);
+  background: #ffffff;
+  color: var(--text);
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
+}
+
+.connection-overlay-card h2 {
+  margin-bottom: 10px;
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   body {
     padding: 16px 10px;
   }
@@ -243,26 +360,47 @@ th {
     padding: 14px;
   }
 
-  .row,
-  .actions,
-  .join-area,
-  .host-controls,
-  .night-action-buttons {
-    flex-direction: column;
-    align-items: stretch;
+  .one-line {
+    flex-direction: row;
   }
 
-  input,
-  button,
-  select {
-    width: 100%;
+  .one-line input {
+    min-width: 0;
   }
 
-  #roomCodeText {
-    font-size: 24px;
+  .one-line button {
+    flex: 0 0 auto;
   }
 
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .invite-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .invite-url-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .qr-image {
+    justify-self: center;
+  }
+
+  .host-controls,
+  .game-action-buttons {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  button {
+    width: auto;
+  }
+
+  .host-controls button,
+  .game-action-buttons button {
+    width: 100%;
   }
 }

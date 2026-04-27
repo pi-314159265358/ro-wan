@@ -1,5 +1,10 @@
-const MIN_PLAYERS = 2;
-const MAX_PLAYERS = 10;
+import {
+  DEFAULT_SETTINGS,
+  MAX_PLAYERS,
+  MIN_PLAYERS,
+  createInitialGameSetup,
+  normalizeOnlineSettings,
+} from "../shared/gameLogic.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -28,6 +33,7 @@ function jsonCors(payload, status = 200) {
 
 function withCors(response) {
   const headers = new Headers(response.headers);
+
   Object.entries(CORS_HEADERS).forEach(([key, value]) => {
     headers.set(key, value);
   });
@@ -51,6 +57,7 @@ function randomString(length, alphabet) {
   crypto.getRandomValues(values);
 
   let result = "";
+
   for (let i = 0; i < length; i += 1) {
     result += alphabet[values[i] % alphabet.length];
   }
@@ -59,7 +66,7 @@ function randomString(length, alphabet) {
 }
 
 function createRoomCode() {
-  return randomString(6, "ABCDEFGHJKLMNPQRSTUVWXYZ23456789");
+  return randomString(4, "0123456789");
 }
 
 function createId(prefix) {
@@ -128,6 +135,7 @@ export class RoomDurableObject {
       phase: room.phase,
       createdAt: room.createdAt,
       updatedAt: room.updatedAt,
+      startedAt: room.startedAt || null,
       hostPlayerId: room.hostPlayerId,
       players: room.players.map((player) => ({
         id: player.id,
@@ -136,7 +144,39 @@ export class RoomDurableObject {
         connected: Boolean(player.connected),
         joinedAt: player.joinedAt,
       })),
-      settings: room.settings,
+      settings: normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
+        includeManual: false,
+      }),
+      gamePublic: room.game ? {
+        phase: room.game.phase,
+        count: room.game.count,
+        pattern: room.game.pattern,
+        graveCount: room.game.initialGraveCards.length,
+        hasDeadPlayer: Boolean(room.game.deadPlayer),
+      } : null,
+    };
+  }
+
+  buildPrivateGame(room, playerId) {
+    if (!room.game || room.phase !== "started") {
+      return null;
+    }
+
+    const playerIndex = room.players.findIndex((player) => player.id === playerId);
+
+    if (playerIndex < 0) {
+      return null;
+    }
+
+    return {
+      phase: room.game.phase,
+      playerIndex,
+      initialRole: room.game.initialRoles[playerIndex],
+      currentRole: room.game.currentRoles[playerIndex],
+      roleHistory: room.game.roleHistories[playerIndex],
+      nightResult: room.game.nightResults[playerIndex],
+      graveCount: room.game.initialGraveCards.length,
+      hasDeadPlayer: Boolean(room.game.deadPlayer),
     };
   }
 
@@ -154,9 +194,9 @@ export class RoomDurableObject {
     }
 
     const body = await readJson(request);
-    const roomId = String(body.roomId || "").trim().toUpperCase();
+    const roomId = String(body.roomId || "").trim();
 
-    if (!roomId) {
+    if (!/^\d{4}$/.test(roomId)) {
       return jsonResponse({ ok: false, error: "roomId is required" }, 400);
     }
 
@@ -173,12 +213,13 @@ export class RoomDurableObject {
       phase: "lobby",
       createdAt: now(),
       updatedAt: now(),
+      startedAt: null,
       hostPlayerId: player.id,
       players: [player],
-      settings: {
-        minPlayers: MIN_PLAYERS,
-        maxPlayers: MAX_PLAYERS,
-      },
+      settings: normalizeOnlineSettings(body.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
+        includeManual: false,
+      }),
+      game: null,
     };
 
     await this.saveRoom(room);
@@ -221,6 +262,14 @@ export class RoomDurableObject {
 
     if (room.phase !== "lobby") {
       return jsonResponse({ ok: false, error: "開始後の新規参加はできません" }, 400);
+    }
+
+    const settings = normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
+      includeManual: false,
+    });
+
+    if (room.players.length >= settings.playerCount) {
+      return jsonResponse({ ok: false, error: "設定人数が満員です" }, 400);
     }
 
     if (room.players.length >= MAX_PLAYERS) {
@@ -308,6 +357,7 @@ export class RoomDurableObject {
     server.send(JSON.stringify({
       type: "connected",
       snapshot: this.buildPublicSnapshot(room),
+      privateGame: this.buildPrivateGame(room, playerId),
       self: {
         playerId,
         isHost: playerId === room.hostPlayerId,
@@ -348,6 +398,11 @@ export class RoomDurableObject {
 
     const isHost = playerId === room.hostPlayerId;
 
+    if (message.type === "updateSettings") {
+      await this.handleUpdateSettings(room, playerId, message.settings, isHost);
+      return;
+    }
+
     if (message.type === "startGame") {
       await this.handleStartGame(room, playerId, isHost);
       return;
@@ -378,6 +433,39 @@ export class RoomDurableObject {
     }
   }
 
+  async handleUpdateSettings(room, playerId, settingsInput, isHost) {
+    if (!isHost) {
+      await this.sendError(playerId, "ホストのみ設定を変更できます");
+      return;
+    }
+
+    if (room.phase !== "lobby") {
+      await this.sendError(playerId, "ロビー中のみ設定を変更できます");
+      return;
+    }
+
+    const currentSettings = normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
+      includeManual: false,
+    });
+
+    const nextSettings = normalizeOnlineSettings(settingsInput || {}, currentSettings, {
+      includeManual: false,
+    });
+
+    if (nextSettings.playerCount < room.players.length) {
+      await this.sendError(playerId, "現在の参加者数より少ない人数にはできません");
+      return;
+    }
+
+    room.settings = nextSettings;
+
+    await this.saveRoom(room);
+    await this.sendToPlayer(playerId, {
+      type: "settingsSaved",
+    });
+    await this.broadcastSnapshot();
+  }
+
   async handleStartGame(room, playerId, isHost) {
     if (!isHost) {
       await this.sendError(playerId, "ホストのみ開始できます");
@@ -389,6 +477,15 @@ export class RoomDurableObject {
       return;
     }
 
+    const settings = normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
+      includeManual: false,
+    });
+
+    if (room.players.length !== settings.playerCount) {
+      await this.sendError(playerId, `${settings.playerCount}人ちょうどで開始できます`);
+      return;
+    }
+
     if (room.players.length < MIN_PLAYERS) {
       await this.sendError(playerId, `${MIN_PLAYERS}人以上で開始できます`);
       return;
@@ -396,6 +493,19 @@ export class RoomDurableObject {
 
     if (room.players.length > MAX_PLAYERS) {
       await this.sendError(playerId, `${MAX_PLAYERS}人以下で開始できます`);
+      return;
+    }
+
+    try {
+      room.game = createInitialGameSetup(
+        room.players.map((player) => player.name),
+        settings
+      );
+    } catch (error) {
+      await this.sendError(
+        playerId,
+        error instanceof Error ? error.message : "配役作成に失敗しました"
+      );
       return;
     }
 
@@ -412,7 +522,8 @@ export class RoomDurableObject {
     }
 
     room.phase = "lobby";
-    delete room.startedAt;
+    room.startedAt = null;
+    room.game = null;
 
     await this.saveRoom(room);
     await this.broadcastSnapshot();
@@ -469,6 +580,7 @@ export class RoomDurableObject {
       } catch {
         // ignore
       }
+
       this.sessions.delete(targetPlayerId);
     }
 
@@ -551,6 +663,7 @@ export class RoomDurableObject {
       const payload = {
         type: "snapshot",
         snapshot,
+        privateGame: this.buildPrivateGame(room, playerId),
         self: {
           playerId,
           isHost: playerId === room.hostPlayerId,
@@ -585,7 +698,7 @@ export default {
       if (url.pathname === "/api/rooms" && request.method === "POST") {
         const body = await readJson(request);
 
-        for (let attempt = 0; attempt < 5; attempt += 1) {
+        for (let attempt = 0; attempt < 10; attempt += 1) {
           const roomId = createRoomCode();
           const stub = getRoomStub(env, roomId);
 
@@ -597,6 +710,7 @@ export default {
             body: JSON.stringify({
               roomId,
               name: body.name,
+              settings: body.settings,
             }),
           }));
 
@@ -608,18 +722,17 @@ export default {
         return jsonCors({ ok: false, error: "部屋作成に失敗しました" }, 500);
       }
 
-      const roomJoinMatch = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]{6})\/join$/);
+      const roomJoinMatch = url.pathname.match(/^\/api\/rooms\/(\d{4})\/join$/);
       if (roomJoinMatch && request.method === "POST") {
         const roomId = roomJoinMatch[1];
         const stub = getRoomStub(env, roomId);
 
-        const targetUrl = new URL("https://room/join");
-        const response = await stub.fetch(new Request(targetUrl, request));
+        const response = await stub.fetch(new Request("https://room/join", request));
 
         return withCors(response);
       }
 
-      const socketMatch = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]{6})\/socket$/);
+      const socketMatch = url.pathname.match(/^\/api\/rooms\/(\d{4})\/socket$/);
       if (socketMatch && request.method === "GET") {
         const roomId = socketMatch[1];
         const stub = getRoomStub(env, roomId);

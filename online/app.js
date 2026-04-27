@@ -1,7 +1,16 @@
 import {
+  DEFAULT_SETTINGS,
   MAX_PLAYERS,
   MIN_PLAYERS,
   ONLINE_HUNTER_RULE,
+  TIME_OPTIONS,
+  buildCountSummary,
+  getAvailablePatterns,
+  getDurationLabel,
+  getPatternSpecialNote,
+  getRoleDescription,
+  getSelectedFixedRoles,
+  normalizeOnlineSettings,
 } from "../shared/gameLogic.js";
 
 const WORKER_URL_STORAGE_KEY = "one_night_jinro_online_worker_url_v1";
@@ -25,6 +34,17 @@ const refs = {
   roomCodeText: document.getElementById("roomCodeText"),
   copyRoomCodeBtn: document.getElementById("copyRoomCodeBtn"),
   phaseText: document.getElementById("phaseText"),
+
+  settingPlayerCount: document.getElementById("settingPlayerCount"),
+  settingPattern: document.getElementById("settingPattern"),
+  settingNightSeconds: document.getElementById("settingNightSeconds"),
+  settingDiscussionSeconds: document.getElementById("settingDiscussionSeconds"),
+  settingVoteSeconds: document.getElementById("settingVoteSeconds"),
+  currentSettingsText: document.getElementById("currentSettingsText"),
+  settingsActions: document.getElementById("settingsActions"),
+  saveSettingsBtn: document.getElementById("saveSettingsBtn"),
+  settingStatus: document.getElementById("settingStatus"),
+
   playerTableBody: document.getElementById("playerTableBody"),
   hostControls: document.getElementById("hostControls"),
   startGameBtn: document.getElementById("startGameBtn"),
@@ -37,6 +57,7 @@ const refs = {
 const state = {
   socket: null,
   snapshot: null,
+  privateGame: null,
   self: null,
   session: null,
 };
@@ -62,16 +83,13 @@ function saveSession(session) {
   localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 }
 
-function clearSession() {
-  localStorage.removeItem(SESSION_STORAGE_KEY);
-}
-
 function normalizeWorkerUrl(value) {
   return value.trim().replace(/\/+$/, "");
 }
 
 function getWorkerUrl() {
   const value = normalizeWorkerUrl(refs.workerUrlInput.value);
+
   if (!value) {
     throw new Error("Worker URLを入力してください");
   }
@@ -94,6 +112,10 @@ function setStatus(message) {
 
 function setWorkerStatus(message) {
   refs.workerUrlStatus.textContent = message;
+}
+
+function setSettingStatus(message) {
+  refs.settingStatus.textContent = message;
 }
 
 function setBusy(isBusy) {
@@ -126,6 +148,7 @@ function buildWebSocketUrl(roomId, playerId, token) {
   const baseUrl = getWorkerUrl();
   const wsBase = baseUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
   const query = new URLSearchParams({ playerId, token });
+
   return `${wsBase}/api/rooms/${encodeURIComponent(roomId)}/socket?${query.toString()}`;
 }
 
@@ -152,12 +175,17 @@ function connectSocket(session) {
 
     if (message.type === "snapshot" || message.type === "connected") {
       state.snapshot = message.snapshot;
+      state.privateGame = message.privateGame || null;
       state.self = message.self;
       render();
     }
 
     if (message.type === "error") {
       setStatus(message.error || "エラーが発生しました");
+    }
+
+    if (message.type === "settingsSaved") {
+      setSettingStatus("設定を保存しました");
     }
   });
 
@@ -199,6 +227,7 @@ async function createRoom() {
 
     state.session = session;
     state.snapshot = payload.snapshot;
+    state.privateGame = null;
     state.self = {
       playerId: payload.playerId,
       isHost: payload.isHost,
@@ -215,10 +244,10 @@ async function createRoom() {
 }
 
 async function joinRoom() {
-  const roomId = refs.roomCodeInput.value.trim().toUpperCase();
+  const roomId = refs.roomCodeInput.value.trim();
 
-  if (!roomId) {
-    setStatus("ルームコードを入力してください");
+  if (!/^\d{4}$/.test(roomId)) {
+    setStatus("4桁のルームコードを入力してください");
     return;
   }
 
@@ -240,6 +269,7 @@ async function joinRoom() {
 
     state.session = session;
     state.snapshot = payload.snapshot;
+    state.privateGame = null;
     state.self = {
       playerId: payload.playerId,
       isHost: payload.isHost,
@@ -286,6 +316,126 @@ function getPhaseLabel(phase) {
 
 function isHost() {
   return Boolean(state.self?.isHost);
+}
+
+function populatePlayerCountOptions() {
+  refs.settingPlayerCount.innerHTML = "";
+
+  for (let count = MIN_PLAYERS; count <= MAX_PLAYERS; count += 1) {
+    const option = document.createElement("option");
+    option.value = String(count);
+    option.textContent = `${count}人`;
+    refs.settingPlayerCount.appendChild(option);
+  }
+}
+
+function populateTimeOptions(selectElement, key) {
+  selectElement.innerHTML = "";
+
+  TIME_OPTIONS[key].forEach((item) => {
+    const option = document.createElement("option");
+    option.value = String(item.value);
+    option.textContent = item.label;
+    selectElement.appendChild(option);
+  });
+}
+
+function renderPatternOptions(playerCount, selectedPattern) {
+  const patterns = getAvailablePatterns(playerCount, { includeManual: false });
+
+  refs.settingPattern.innerHTML = "";
+
+  patterns.forEach((pattern) => {
+    const option = document.createElement("option");
+    option.value = pattern;
+    option.textContent = pattern;
+    refs.settingPattern.appendChild(option);
+  });
+
+  if (patterns.includes(selectedPattern)) {
+    refs.settingPattern.value = selectedPattern;
+  } else {
+    refs.settingPattern.value = patterns[0] || "A";
+  }
+}
+
+function collectSettingsFromForm() {
+  return normalizeOnlineSettings({
+    playerCount: Number(refs.settingPlayerCount.value),
+    pattern: refs.settingPattern.value,
+    nightSeconds: Number(refs.settingNightSeconds.value),
+    discussionSeconds: Number(refs.settingDiscussionSeconds.value),
+    voteSeconds: Number(refs.settingVoteSeconds.value),
+  }, DEFAULT_SETTINGS, {
+    includeManual: false,
+  });
+}
+
+function buildSettingsText(settings) {
+  const lines = [
+    `人数: ${settings.playerCount}人`,
+    `パターン: ${settings.pattern}`,
+    `夜行動時間: ${getDurationLabel(settings.nightSeconds)}`,
+    `議論時間: ${getDurationLabel(settings.discussionSeconds)}`,
+    `投票時間: ${getDurationLabel(settings.voteSeconds)}`,
+  ];
+
+  const note = getPatternSpecialNote(settings.playerCount, settings.pattern);
+  if (note) {
+    lines.push(note);
+  }
+
+  const roles = getSelectedFixedRoles(settings.playerCount, settings.pattern);
+
+  if (roles) {
+    const summary = buildCountSummary(roles);
+    lines.push(`使用役職: ${summary.text}`);
+
+    const roleLines = summary.orderedUniqueRoles.map((role) => {
+      return `${role}: ${getRoleDescription(role, settings.playerCount, settings.pattern)}`;
+    });
+
+    lines.push(roleLines.join("\n"));
+  }
+
+  return lines.join("\n");
+}
+
+function applySettingsToForm(settings) {
+  refs.settingPlayerCount.value = String(settings.playerCount);
+  renderPatternOptions(settings.playerCount, settings.pattern);
+
+  refs.settingNightSeconds.value = String(settings.nightSeconds);
+  refs.settingDiscussionSeconds.value = String(settings.discussionSeconds);
+  refs.settingVoteSeconds.value = String(settings.voteSeconds);
+}
+
+function renderSettings() {
+  const settings = normalizeOnlineSettings(state.snapshot?.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
+    includeManual: false,
+  });
+  const editable = isHost() && state.snapshot?.phase === "lobby";
+
+  applySettingsToForm(settings);
+
+  refs.settingPlayerCount.disabled = !editable;
+  refs.settingPattern.disabled = !editable;
+  refs.settingNightSeconds.disabled = !editable;
+  refs.settingDiscussionSeconds.disabled = !editable;
+  refs.settingVoteSeconds.disabled = !editable;
+
+  refs.settingsActions.classList.toggle("hidden", !editable);
+  refs.currentSettingsText.textContent = buildSettingsText(settings);
+}
+
+function saveSettings() {
+  if (!isHost()) {
+    return;
+  }
+
+  setSettingStatus("");
+  const settings = collectSettingsFromForm();
+  sendSocket("updateSettings", { settings });
 }
 
 function movePlayer(playerId, direction) {
@@ -381,14 +531,36 @@ function renderGamePanel() {
 
   refs.gamePanel.classList.toggle("hidden", state.snapshot.phase !== "started");
 
-  if (state.snapshot.phase === "started") {
+  if (state.snapshot.phase !== "started") {
+    return;
+  }
+
+  const settings = normalizeOnlineSettings(state.snapshot.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
+    includeManual: false,
+  });
+
+  const privateGame = state.privateGame;
+
+  if (!privateGame) {
     refs.gameStatusText.textContent = [
       "ゲーム開始状態です。",
-      "現在はオンライン同期の最小構成です。",
-      `次段階で配役・夜行動・投票・狩人追加処刑を実装します。`,
-      `狩人追加処刑: ${ONLINE_HUNTER_RULE.timeoutSeconds}秒、未送信時は追加処刑なし。`,
+      "役職情報を取得中です。",
     ].join("\n");
+    return;
   }
+
+  refs.gameStatusText.textContent = [
+    "ゲーム開始状態です。",
+    `人数: ${settings.playerCount}人`,
+    `パターン: ${settings.pattern}`,
+    `あなたの順番: ${privateGame.playerIndex + 1}`,
+    `あなたの役職: ${privateGame.initialRole}`,
+    `墓地枚数: ${privateGame.graveCount}枚`,
+    privateGame.hasDeadPlayer ? "3人目の死体があります" : "",
+    "現在はサーバー側で配役作成まで完了しています。",
+    "次段階で夜行動・投票・結果表示を実装します。",
+    `狩人追加処刑: ${ONLINE_HUNTER_RULE.timeoutSeconds}秒、未送信時は追加処刑なし。`,
+  ].filter(Boolean).join("\n");
 }
 
 function render() {
@@ -401,20 +573,30 @@ function render() {
     return;
   }
 
+  const settings = normalizeOnlineSettings(state.snapshot.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
+    includeManual: false,
+  });
+  const playerCount = state.snapshot.players.length;
+
   refs.roomCodeText.textContent = state.snapshot.roomId;
   refs.phaseText.textContent = getPhaseLabel(state.snapshot.phase);
 
+  renderSettings();
   renderPlayerTable();
 
   refs.hostControls.classList.toggle("hidden", !isHost());
 
   const canStart = isHost()
     && state.snapshot.phase === "lobby"
-    && state.snapshot.players.length >= MIN_PLAYERS
-    && state.snapshot.players.length <= MAX_PLAYERS;
+    && playerCount === settings.playerCount
+    && playerCount >= MIN_PLAYERS
+    && playerCount <= MAX_PLAYERS;
 
-  refs.startGameBtn.classList.toggle("hidden", !canStart);
+  refs.startGameBtn.classList.toggle("hidden", !(isHost() && state.snapshot.phase === "lobby"));
   refs.startGameBtn.disabled = !canStart;
+  refs.startGameBtn.textContent = canStart
+    ? "開始"
+    : `開始（${playerCount}/${settings.playerCount}人）`;
 
   refs.backToLobbyBtn.classList.toggle(
     "hidden",
@@ -452,9 +634,40 @@ refs.backToLobbyBtn.addEventListener("click", () => {
   sendSocket("backToLobby");
 });
 
-refs.roomCodeInput.addEventListener("input", () => {
-  refs.roomCodeInput.value = refs.roomCodeInput.value.toUpperCase();
+refs.saveSettingsBtn.addEventListener("click", saveSettings);
+
+refs.settingPlayerCount.addEventListener("change", () => {
+  const settings = collectSettingsFromForm();
+  renderPatternOptions(settings.playerCount, settings.pattern);
+  refs.currentSettingsText.textContent = buildSettingsText(collectSettingsFromForm());
 });
+
+refs.settingPattern.addEventListener("change", () => {
+  refs.currentSettingsText.textContent = buildSettingsText(collectSettingsFromForm());
+});
+
+refs.settingNightSeconds.addEventListener("change", () => {
+  refs.currentSettingsText.textContent = buildSettingsText(collectSettingsFromForm());
+});
+
+refs.settingDiscussionSeconds.addEventListener("change", () => {
+  refs.currentSettingsText.textContent = buildSettingsText(collectSettingsFromForm());
+});
+
+refs.settingVoteSeconds.addEventListener("change", () => {
+  refs.currentSettingsText.textContent = buildSettingsText(collectSettingsFromForm());
+});
+
+refs.roomCodeInput.addEventListener("input", () => {
+  refs.roomCodeInput.value = refs.roomCodeInput.value.replace(/\D/g, "").slice(0, 4);
+});
+
+populatePlayerCountOptions();
+populateTimeOptions(refs.settingNightSeconds, "nightSeconds");
+populateTimeOptions(refs.settingDiscussionSeconds, "discussionSeconds");
+populateTimeOptions(refs.settingVoteSeconds, "voteSeconds");
+applySettingsToForm(DEFAULT_SETTINGS);
+refs.currentSettingsText.textContent = buildSettingsText(DEFAULT_SETTINGS);
 
 refs.workerUrlInput.value = loadWorkerUrl();
 state.session = loadSession();

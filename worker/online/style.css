@@ -1,0 +1,268 @@
+:root {
+  --bg: #f5f5f5;
+  --panel: #ffffff;
+  --text: #222222;
+  --muted: #666666;
+  --line: #dddddd;
+  --primary: #1f6feb;
+  --primary-dark: #1558bd;
+  --danger: #c62828;
+  --shadow: rgba(0, 0, 0, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 24px 16px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  width: min(100%, 820px);
+  margin: 0 auto;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+
+h2 {
+  margin: 0 0 14px;
+  font-size: 20px;
+}
+
+h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.sub,
+.help,
+.status,
+.phase,
+.readonly-settings,
+#gameStatusText {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.sub,
+.help {
+  color: var(--muted);
+}
+
+.box {
+  background: var(--panel);
+  margin-bottom: 18px;
+  padding: 18px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+.row,
+.actions,
+.join-area,
+.host-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+input,
+button,
+select {
+  font-size: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+input,
+select {
+  flex: 1 1 240px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: #ffffff;
+}
+
+button {
+  border: none;
+  background: var(--primary);
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--primary-dark);
+}
+
+button:disabled {
+  background: #999999;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: #666666;
+}
+
+button.danger {
+  background: var(--danger);
+}
+
+.status {
+  margin-top: 10px;
+  white-space: pre-line;
+}
+
+.room-code-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+#roomCodeText {
+  font-size: 28px;
+  letter-spacing: 0.12em;
+}
+
+.phase {
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.settings-panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  margin: 14px 0;
+  background: #fafafa;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.settings-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.settings-grid select {
+  width: 100%;
+  margin: 0;
+}
+
+.readonly-settings {
+  margin-top: 12px;
+  white-space: pre-line;
+  color: var(--muted);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+th,
+td {
+  border: 1px solid var(--line);
+  padding: 10px;
+  vertical-align: middle;
+}
+
+th {
+  background: #f2f2f2;
+}
+
+.player-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.player-actions button {
+  padding: 7px 9px;
+  font-size: 14px;
+}
+
+#gameStatusText {
+  white-space: pre-line;
+}
+
+.night-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.night-action-buttons button {
+  flex: 0 1 auto;
+}
+
+.hidden {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  body {
+    padding: 16px 10px;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+
+  .box {
+    padding: 14px;
+  }
+
+  .row,
+  .actions,
+  .join-area,
+  .host-controls,
+  .night-action-buttons {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  input,
+  button,
+  select {
+    width: 100%;
+  }
+
+  #roomCodeText {
+    font-size: 24px;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}

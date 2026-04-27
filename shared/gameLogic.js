@@ -429,11 +429,17 @@ export function createInitialGameSetup(playerNames, settings, random = Math.rand
     nightResults: Array(playerCount).fill(null),
     votes: Array(playerCount).fill(null),
     voteResults: Array(playerCount).fill(null),
+    voteTotals: Array(playerCount).fill(0),
     eliminatedPlayers: [],
     isPeaceVillage: false,
     mobVisits,
     breadDelivery,
     deadPlayer,
+    hunterIndex: null,
+    hunterDeadlineAt: null,
+    hunterExtraTarget: null,
+    hunterResult: null,
+    result: null,
     createdAt: Date.now(),
     nightStartedAt: Date.now(),
     nightDeadlineAt: null,
@@ -442,11 +448,20 @@ export function createInitialGameSetup(playerNames, settings, random = Math.rand
     voteStartedAt: null,
     voteDeadlineAt: null,
     voteCompletedAt: null,
+    resultCreatedAt: null,
   };
 }
 
 function formatPlayerName(game, index) {
   return game.playerNames[index] || `プレイヤー${index + 1}`;
+}
+
+function formatPlayerList(game, indexes) {
+  if (!indexes || indexes.length === 0) {
+    return "なし";
+  }
+
+  return indexes.map((index) => formatPlayerName(game, index)).join("、");
 }
 
 function formatVoteTarget(game, target) {
@@ -459,6 +474,44 @@ function formatVoteTarget(game, target) {
   }
 
   return "未投票";
+}
+
+function formatRoleHistory(history) {
+  if (!history || history.length === 0) {
+    return "";
+  }
+
+  return history.length <= 1 ? history[0] : history.join("→");
+}
+
+function formatGraveCard(game, index) {
+  const initialRole = game.initialGraveCards[index];
+  const currentRole = game.currentGraveCards[index];
+
+  if (!initialRole) {
+    return "";
+  }
+
+  return initialRole === currentRole ? initialRole : `${initialRole}→${currentRole}`;
+}
+
+function formatGraveSummary(game) {
+  return game.initialGraveCards
+    .map((_, index) => formatGraveCard(game, index))
+    .filter(Boolean)
+    .join("、");
+}
+
+function getPlayerTeam(role, hasWerewolfSide) {
+  if (isWerewolfRole(role)) {
+    return "人狼";
+  }
+
+  if (role === "狂人") {
+    return hasWerewolfSide ? "人狼" : "村";
+  }
+
+  return "村";
 }
 
 function getInitialWerewolfPartners(game, playerIndex) {
@@ -540,6 +593,8 @@ function buildBasePlayerView(game, playerIndex) {
     nightDeadlineAt: game.nightDeadlineAt || null,
     discussionDeadlineAt: game.discussionDeadlineAt || null,
     voteDeadlineAt: game.voteDeadlineAt || null,
+    hunterDeadlineAt: game.hunterDeadlineAt || null,
+    result: game.result,
   };
 }
 
@@ -671,6 +726,39 @@ export function getVoteActionView(game, playerIndex) {
   };
 }
 
+export function getHunterActionView(game, playerIndex) {
+  const isHunter = playerIndex === game.hunterIndex;
+  const completed = Boolean(game.hunterResult);
+  const choices = [];
+
+  if (isHunter && !completed) {
+    const targets = Array.from({ length: game.count }, (_, index) => index)
+      .filter((index) => !game.eliminatedPlayers.includes(index));
+
+    targets.forEach((targetIndex) => {
+      choices.push({
+        action: { kind: "execute", targetIndex },
+        label: `${formatPlayerName(game, targetIndex)}を追加で吊る`,
+      });
+    });
+
+    choices.push({
+      action: { kind: "none" },
+      label: "誰も吊らない",
+    });
+  }
+
+  return {
+    ...buildBasePlayerView(game, playerIndex),
+    choices,
+    isHunter,
+    isHunterExecutionComplete: completed,
+    hunterIndex: game.hunterIndex,
+    hunterName: game.hunterIndex === null ? "" : formatPlayerName(game, game.hunterIndex),
+    hunterResult: game.hunterResult,
+  };
+}
+
 export function getPlayerGameView(game, playerIndex) {
   if (!game) {
     return null;
@@ -682,6 +770,10 @@ export function getPlayerGameView(game, playerIndex) {
 
   if (game.phase === "vote") {
     return getVoteActionView(game, playerIndex);
+  }
+
+  if (game.phase === "hunterExecution") {
+    return getHunterActionView(game, playerIndex);
   }
 
   return {
@@ -892,11 +984,6 @@ export function moveGameToVote(game, nowValue = Date.now()) {
   }
 }
 
-export function moveGameToVoteComplete(game, nowValue = Date.now()) {
-  game.phase = "voteComplete";
-  game.voteCompletedAt = nowValue;
-}
-
 export function createAutoVoteAction() {
   return { kind: "peace" };
 }
@@ -974,4 +1061,253 @@ export function computeIsPeaceVillage(votes, currentRoles, playerCount, pattern)
   }
 
   return allPeace || everyoneOneVote;
+}
+
+function decideEliminatedPlayers(game) {
+  const voteTotals = computeVoteTotals(game.votes, game.currentRoles);
+  const isPeaceVillage = computeIsPeaceVillage(
+    game.votes,
+    game.currentRoles,
+    game.count,
+    game.pattern
+  );
+
+  game.voteTotals = voteTotals;
+  game.isPeaceVillage = isPeaceVillage;
+
+  if (isPeaceVillage) {
+    game.eliminatedPlayers = [];
+    return;
+  }
+
+  const maxVote = Math.max(...voteTotals);
+
+  game.eliminatedPlayers = voteTotals
+    .map((total, index) => ({ total, index }))
+    .filter((item) => item.total === maxVote && item.total > 0)
+    .map((item) => item.index);
+}
+
+function buildGameResult(game, nowValue = Date.now()) {
+  const hasWerewolfSide = game.currentRoles.some((role) => isWerewolfRole(role));
+  const hasExecutedWerewolf = game.eliminatedPlayers.some((index) => {
+    return isWerewolfRole(game.currentRoles[index]);
+  });
+
+  let headline = "";
+  let winnerIndexes = [];
+
+  if (!hasWerewolfSide) {
+    if (game.eliminatedPlayers.length === 0) {
+      headline = "平和村で全員勝利";
+      winnerIndexes = game.playerNames.map((_, index) => index);
+    } else {
+      headline = "平和崩れで全員負け";
+      winnerIndexes = [];
+    }
+  } else if (hasExecutedWerewolf) {
+    winnerIndexes = game.currentRoles
+      .map((role, index) => ({ role, index }))
+      .filter((item) => getPlayerTeam(item.role, hasWerewolfSide) === "村")
+      .map((item) => item.index);
+    headline = `村陣営勝利`;
+  } else {
+    winnerIndexes = game.currentRoles
+      .map((role, index) => ({ role, index }))
+      .filter((item) => getPlayerTeam(item.role, hasWerewolfSide) === "人狼")
+      .map((item) => item.index);
+    headline = `人狼陣営勝利`;
+  }
+
+  const playerRows = game.playerNames.map((name, index) => {
+    return {
+      name,
+      roleHistory: formatRoleHistory(game.roleHistories[index]),
+      initialRole: game.initialRoles[index],
+      finalRole: game.currentRoles[index],
+      voteTarget: formatVoteTarget(game, game.votes[index]),
+      isEliminated: game.eliminatedPlayers.includes(index),
+      isWinner: winnerIndexes.includes(index),
+    };
+  });
+
+  if (game.deadPlayer) {
+    playerRows.push({
+      name: game.deadPlayer.name,
+      roleHistory: game.deadPlayer.role,
+      initialRole: game.deadPlayer.role,
+      finalRole: game.deadPlayer.role,
+      voteTarget: "投票なし",
+      isEliminated: false,
+      isWinner: false,
+    });
+  }
+
+  const metaLines = [
+    `処刑プレイヤー: ${formatPlayerList(game, game.eliminatedPlayers)}`,
+    `墓地: ${formatGraveSummary(game)}`,
+  ];
+
+  if (game.deadPlayer) {
+    metaLines.push(`死体の役職: ${game.deadPlayer.role}`);
+  }
+
+  game.mobVisits.forEach((visit) => {
+    metaLines.push(`${formatPlayerName(game, visit.actorIndex)}が${formatPlayerName(game, visit.targetIndex)}を訪問`);
+  });
+
+  if (game.breadDelivery) {
+    metaLines.push(`${formatPlayerName(game, game.breadDelivery.actorIndex)}が${formatPlayerName(game, game.breadDelivery.targetIndex)}にパンを配達`);
+  }
+
+  if (game.hunterResult) {
+    metaLines.push(game.hunterResult.text);
+  }
+
+  return {
+    headline,
+    winnerIndexes,
+    winnerNames: winnerIndexes.map((index) => formatPlayerName(game, index)),
+    eliminatedPlayers: [...game.eliminatedPlayers],
+    eliminatedNames: game.eliminatedPlayers.map((index) => formatPlayerName(game, index)),
+    isPeaceVillage: game.isPeaceVillage,
+    voteTotals: [...game.voteTotals],
+    graveSummary: formatGraveSummary(game),
+    deadPlayer: game.deadPlayer,
+    playerRows,
+    metaLines,
+    createdAt: nowValue,
+  };
+}
+
+export function finalizeGame(game, nowValue = Date.now()) {
+  game.phase = "result";
+  game.resultCreatedAt = nowValue;
+  game.result = buildGameResult(game, nowValue);
+}
+
+export function completeVotesAndAdvance(game, nowValue = Date.now()) {
+  if (!game || game.phase !== "vote") {
+    throw new Error("投票フェーズではありません");
+  }
+
+  decideEliminatedPlayers(game);
+
+  const hunterIndex = game.eliminatedPlayers.find((index) => {
+    return game.currentRoles[index] === "狩人";
+  });
+
+  if (hunterIndex !== undefined) {
+    if (isTwoPlayerCount(game.count)) {
+      const remainingTargets = Array.from({ length: game.count }, (_, index) => index)
+        .filter((index) => !game.eliminatedPlayers.includes(index));
+
+      if (remainingTargets.length > 0) {
+        const targetIndex = remainingTargets[0];
+        game.eliminatedPlayers.push(targetIndex);
+        game.eliminatedPlayers = [...new Set(game.eliminatedPlayers)];
+        game.hunterIndex = hunterIndex;
+        game.hunterExtraTarget = targetIndex;
+        game.hunterResult = {
+          targetIndex,
+          text: `${formatPlayerName(game, hunterIndex)}は狩人でした。狩人の効果で${formatPlayerName(game, targetIndex)}も追加で吊られました`,
+          completedAt: nowValue,
+          auto: true,
+        };
+      } else {
+        game.hunterIndex = hunterIndex;
+        game.hunterResult = {
+          targetIndex: null,
+          text: `${formatPlayerName(game, hunterIndex)}は狩人でした`,
+          completedAt: nowValue,
+          auto: true,
+        };
+      }
+
+      finalizeGame(game, nowValue);
+      return;
+    }
+
+    game.phase = "hunterExecution";
+    game.hunterIndex = hunterIndex;
+    game.hunterDeadlineAt = nowValue + ONLINE_HUNTER_RULE.timeoutSeconds * 1000;
+    game.hunterExtraTarget = null;
+    game.hunterResult = null;
+    return;
+  }
+
+  finalizeGame(game, nowValue);
+}
+
+export function resolveHunterAction(game, playerIndex, actionInput = {}, nowValue = Date.now()) {
+  if (!game || game.phase !== "hunterExecution") {
+    throw new Error("狩人追加処刑フェーズではありません");
+  }
+
+  if (playerIndex !== game.hunterIndex) {
+    throw new Error("狩人のみ追加処刑できます");
+  }
+
+  if (game.hunterResult) {
+    return game.hunterResult;
+  }
+
+  const action = actionInput && typeof actionInput === "object" ? actionInput : {};
+  let targetIndex = null;
+
+  if (action.kind === "execute") {
+    const requestedTargetIndex = Number(action.targetIndex);
+
+    if (
+      Number.isInteger(requestedTargetIndex)
+      && requestedTargetIndex >= 0
+      && requestedTargetIndex < game.count
+      && !game.eliminatedPlayers.includes(requestedTargetIndex)
+    ) {
+      targetIndex = requestedTargetIndex;
+    }
+  }
+
+  if (targetIndex !== null) {
+    game.eliminatedPlayers.push(targetIndex);
+    game.eliminatedPlayers = [...new Set(game.eliminatedPlayers)];
+    game.hunterExtraTarget = targetIndex;
+    game.hunterResult = {
+      targetIndex,
+      text: `狩人の効果で${formatPlayerName(game, targetIndex)}が追加で吊られました`,
+      completedAt: nowValue,
+      auto: false,
+    };
+  } else {
+    game.hunterExtraTarget = null;
+    game.hunterResult = {
+      targetIndex: null,
+      text: "狩人は誰も追加で吊りませんでした",
+      completedAt: nowValue,
+      auto: false,
+    };
+  }
+
+  finalizeGame(game, nowValue);
+  return game.hunterResult;
+}
+
+export function resolveHunterTimeout(game, nowValue = Date.now()) {
+  if (!game || game.phase !== "hunterExecution") {
+    return;
+  }
+
+  if (game.hunterResult) {
+    return;
+  }
+
+  game.hunterExtraTarget = null;
+  game.hunterResult = {
+    targetIndex: null,
+    text: "狩人は時間切れのため、誰も追加で吊りませんでした",
+    completedAt: nowValue,
+    auto: true,
+  };
+
+  finalizeGame(game, nowValue);
 }

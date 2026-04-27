@@ -2,6 +2,7 @@ import {
   DEFAULT_SETTINGS,
   MAX_PLAYERS,
   MIN_PLAYERS,
+  completeVotesAndAdvance,
   createAutoNightAction,
   createAutoVoteAction,
   createInitialGameSetup,
@@ -10,8 +11,9 @@ import {
   isVoteComplete,
   moveGameToDiscussion,
   moveGameToVote,
-  moveGameToVoteComplete,
   normalizeOnlineSettings,
+  resolveHunterAction,
+  resolveHunterTimeout,
   resolveNightAction,
   resolveVoteAction,
 } from "../shared/gameLogic.js";
@@ -191,8 +193,23 @@ export class RoomDurableObject {
       }
 
       if (isVoteComplete(room.game)) {
-        moveGameToVoteComplete(room.game, currentTime);
+        completeVotesAndAdvance(room.game, currentTime);
       }
+
+      await this.saveRoom(room);
+      await this.setGameAlarmIfNeeded(room);
+      await this.broadcastSnapshot();
+      return;
+    }
+
+    if (room.game.phase === "hunterExecution") {
+      const deadlineAt = room.game.hunterDeadlineAt;
+
+      if (!deadlineAt || currentTime < deadlineAt) {
+        return;
+      }
+
+      resolveHunterTimeout(room.game, currentTime);
 
       await this.saveRoom(room);
       await this.broadcastSnapshot();
@@ -225,6 +242,11 @@ export class RoomDurableObject {
 
     if (room.game.phase === "vote" && room.game.voteDeadlineAt) {
       await this.state.storage.setAlarm(room.game.voteDeadlineAt + 250);
+      return;
+    }
+
+    if (room.game.phase === "hunterExecution" && room.game.hunterDeadlineAt) {
+      await this.state.storage.setAlarm(room.game.hunterDeadlineAt + 250);
     }
   }
 
@@ -255,6 +277,7 @@ export class RoomDurableObject {
         nightDeadlineAt: room.game.nightDeadlineAt || null,
         discussionDeadlineAt: room.game.discussionDeadlineAt || null,
         voteDeadlineAt: room.game.voteDeadlineAt || null,
+        hunterDeadlineAt: room.game.hunterDeadlineAt || null,
       } : null,
     };
   }
@@ -516,6 +539,11 @@ export class RoomDurableObject {
       return;
     }
 
+    if (message.type === "submitHunterAction") {
+      await this.handleSubmitHunterAction(room, playerId, message.action);
+      return;
+    }
+
     if (message.type === "backToLobby") {
       await this.handleBackToLobby(room, isHost);
       return;
@@ -707,7 +735,35 @@ export class RoomDurableObject {
     }
 
     if (isVoteComplete(room.game)) {
-      moveGameToVoteComplete(room.game, now());
+      completeVotesAndAdvance(room.game, now());
+      await this.setGameAlarmIfNeeded(room);
+    }
+
+    await this.saveRoom(room);
+    await this.broadcastSnapshot();
+  }
+
+  async handleSubmitHunterAction(room, playerId, action) {
+    if (room.phase !== "started" || !room.game || room.game.phase !== "hunterExecution") {
+      await this.sendError(playerId, "狩人追加処刑フェーズではありません");
+      return;
+    }
+
+    const playerIndex = room.players.findIndex((player) => player.id === playerId);
+
+    if (playerIndex < 0) {
+      await this.sendError(playerId, "プレイヤーが見つかりません");
+      return;
+    }
+
+    try {
+      resolveHunterAction(room.game, playerIndex, action, now());
+    } catch (error) {
+      await this.sendError(
+        playerId,
+        error instanceof Error ? error.message : "狩人追加処刑の処理に失敗しました"
+      );
+      return;
     }
 
     await this.saveRoom(room);

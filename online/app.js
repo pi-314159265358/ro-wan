@@ -2,7 +2,6 @@ import {
   DEFAULT_SETTINGS,
   MAX_PLAYERS,
   MIN_PLAYERS,
-  ONLINE_HUNTER_RULE,
   TIME_OPTIONS,
   buildCountSummary,
   getAvailablePatterns,
@@ -327,8 +326,12 @@ function getPhaseLabel(snapshot) {
       return "投票フェーズ";
     }
 
-    if (gamePhase === "voteComplete") {
-      return "投票完了";
+    if (gamePhase === "hunterExecution") {
+      return "狩人追加処刑";
+    }
+
+    if (gamePhase === "result") {
+      return "結果";
     }
 
     return "ゲーム開始";
@@ -568,6 +571,11 @@ function sendVoteAction(action) {
   sendSocket("submitVote", { action });
 }
 
+function sendHunterAction(action) {
+  clearGameButtons();
+  sendSocket("submitHunterAction", { action });
+}
+
 function renderNightButtons(privateGame) {
   clearGameButtons();
 
@@ -596,6 +604,25 @@ function renderVoteButtons(privateGame) {
   });
 }
 
+function renderHunterButtons(privateGame) {
+  clearGameButtons();
+
+  if (
+    !privateGame
+    || privateGame.phase !== "hunterExecution"
+    || !privateGame.isHunter
+    || privateGame.isHunterExecutionComplete
+  ) {
+    return;
+  }
+
+  privateGame.choices.forEach((choice) => {
+    addGameButton(choice.label, () => {
+      sendHunterAction(choice.action);
+    });
+  });
+}
+
 function renderDiscussionButtons() {
   clearGameButtons();
 
@@ -606,6 +633,38 @@ function renderDiscussionButtons() {
   addGameButton("投票フェーズへ進む", () => {
     sendSocket("startVotePhase");
   });
+}
+
+function buildResultText(result) {
+  if (!result) {
+    return "結果を取得中です。";
+  }
+
+  const lines = [
+    "結果",
+    result.headline,
+    `勝者: ${result.winnerNames.length > 0 ? result.winnerNames.join("、") : "なし"}`,
+    "",
+    ...result.metaLines,
+    "",
+    "各プレイヤー",
+  ];
+
+  result.playerRows.forEach((row) => {
+    const marks = [];
+    if (row.isEliminated) {
+      marks.push("処刑");
+    }
+    if (row.isWinner) {
+      marks.push("勝利");
+    }
+
+    lines.push(
+      `${row.name}: ${row.roleHistory} / 投票先: ${row.voteTarget}${marks.length ? ` / ${marks.join("・")}` : ""}`
+    );
+  });
+
+  return lines.join("\n");
 }
 
 function renderGamePanel() {
@@ -715,15 +774,33 @@ function renderGamePanel() {
     return;
   }
 
-  if (privateGame.phase === "voteComplete") {
-    refs.gameStatusText.textContent = [
-      "投票完了です。",
-      `あなたの役職: ${privateGame.initialRole}`,
-      privateGame.currentRole !== privateGame.initialRole ? `現在の役職: ${privateGame.currentRole}` : "",
-      privateGame.voteResult?.text ? `投票結果: ${privateGame.voteResult.text}` : "投票結果: なし",
-      "次段階で処刑・狩人追加処刑・勝敗判定・結果表示を実装します。",
-      `狩人追加処刑: ${ONLINE_HUNTER_RULE.timeoutSeconds}秒、未送信時は追加処刑なし。`,
-    ].filter(Boolean).join("\n");
+  if (privateGame.phase === "hunterExecution") {
+    const lines = [
+      "狩人追加処刑フェーズです。",
+      `${privateGame.hunterName}は狩人でした。`,
+      privateGame.hunterDeadlineAt
+        ? `追加処刑期限: ${new Date(privateGame.hunterDeadlineAt).toLocaleTimeString()}`
+        : "追加処刑期限: 無限",
+    ];
+
+    if (privateGame.isHunter) {
+      if (privateGame.isHunterExecutionComplete) {
+        lines.push("追加処刑は完了しています。");
+        lines.push(privateGame.hunterResult?.text || "");
+      } else {
+        lines.push("追加で処刑する対象を選んでください。");
+      }
+    } else {
+      lines.push("狩人の追加処刑を待っています。");
+    }
+
+    refs.gameStatusText.textContent = lines.join("\n");
+    renderHunterButtons(privateGame);
+    return;
+  }
+
+  if (privateGame.phase === "result") {
+    refs.gameStatusText.textContent = buildResultText(privateGame.result);
     return;
   }
 

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ワンナイト人狼オンライン</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <h1>ワンナイト人狼オンライン</h1>
+      <p class="sub">最小構成：部屋作成、参加、同期、ホスト開始</p>
+    </header>
+
+    <section class="box">
+      <h2>接続設定</h2>
+      <p class="help">
+        Cloudflare Worker のURLを入力してください。例：https://one-night-jinro-online.example.workers.dev
+      </p>
+      <div class="row">
+        <input id="workerUrlInput" type="url" placeholder="Worker URL" />
+        <button id="saveWorkerUrlBtn" type="button">保存</button>
+      </div>
+      <p id="workerUrlStatus" class="status"></p>
+    </section>
+
+    <section class="box">
+      <h2>名前</h2>
+      <div class="row">
+        <input id="playerNameInput" type="text" maxlength="12" placeholder="プレイヤー名" />
+      </div>
+    </section>
+
+    <section class="box">
+      <h2>部屋</h2>
+
+      <div class="actions">
+        <button id="createRoomBtn" type="button">部屋を作成</button>
+      </div>
+
+      <div class="join-area">
+        <input id="roomCodeInput" type="text" maxlength="6" placeholder="ルームコード" />
+        <button id="joinRoomBtn" type="button">参加</button>
+      </div>
+
+      <div id="reconnectArea" class="hidden">
+        <button id="reconnectBtn" type="button">前回の部屋に再接続</button>
+      </div>
+
+      <p id="connectionStatus" class="status">未接続</p>
+    </section>
+
+    <section id="roomPanel" class="box hidden">
+      <h2>ロビー</h2>
+
+      <div class="room-code-wrap">
+        <span>ルームコード</span>
+        <strong id="roomCodeText">------</strong>
+        <button id="copyRoomCodeBtn" type="button">コピー</button>
+      </div>
+
+      <p id="phaseText" class="phase">待機中</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>順番</th>
+              <th>名前</th>
+              <th>状態</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="playerTableBody"></tbody>
+        </table>
+      </div>
+
+      <div id="hostControls" class="host-controls hidden">
+        <button id="startGameBtn" type="button">開始</button>
+        <button id="backToLobbyBtn" type="button" class="secondary hidden">ロビーに戻す</button>
+      </div>
+    </section>
+
+    <section id="gamePanel" class="box hidden">
+      <h2>ゲーム画面</h2>
+      <p id="gameStatusText">
+        ゲーム開始状態の同期確認中です。次段階で配役・夜フェーズを実装します。
+      </p>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

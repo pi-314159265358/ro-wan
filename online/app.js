@@ -323,6 +323,14 @@ function getPhaseLabel(snapshot) {
       return "議論フェーズ";
     }
 
+    if (gamePhase === "vote") {
+      return "投票フェーズ";
+    }
+
+    if (gamePhase === "voteComplete") {
+      return "投票完了";
+    }
+
     return "ゲーム開始";
   }
 
@@ -538,31 +546,70 @@ function renderPlayerTable() {
   });
 }
 
-function sendNightAction(action) {
+function clearGameButtons() {
   refs.nightActionButtons.innerHTML = "";
+}
+
+function addGameButton(label, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  refs.nightActionButtons.appendChild(button);
+}
+
+function sendNightAction(action) {
+  clearGameButtons();
   sendSocket("submitNightAction", { action });
 }
 
+function sendVoteAction(action) {
+  clearGameButtons();
+  sendSocket("submitVote", { action });
+}
+
 function renderNightButtons(privateGame) {
-  refs.nightActionButtons.innerHTML = "";
+  clearGameButtons();
 
   if (!privateGame || privateGame.phase !== "night" || privateGame.isNightComplete) {
     return;
   }
 
   privateGame.choices.forEach((choice) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = choice.label;
-    button.addEventListener("click", () => {
+    addGameButton(choice.label, () => {
       sendNightAction(choice.action);
     });
-    refs.nightActionButtons.appendChild(button);
+  });
+}
+
+function renderVoteButtons(privateGame) {
+  clearGameButtons();
+
+  if (!privateGame || privateGame.phase !== "vote" || privateGame.isVoteComplete) {
+    return;
+  }
+
+  privateGame.choices.forEach((choice) => {
+    addGameButton(choice.label, () => {
+      sendVoteAction(choice.action);
+    });
+  });
+}
+
+function renderDiscussionButtons() {
+  clearGameButtons();
+
+  if (!isHost()) {
+    return;
+  }
+
+  addGameButton("投票フェーズへ進む", () => {
+    sendSocket("startVotePhase");
   });
 }
 
 function renderGamePanel() {
-  refs.nightActionButtons.innerHTML = "";
+  clearGameButtons();
 
   if (!state.snapshot) {
     refs.gamePanel.classList.add("hidden");
@@ -631,13 +678,52 @@ function renderGamePanel() {
     refs.gameStatusText.textContent = [
       "議論フェーズです。",
       `あなたの役職: ${privateGame.initialRole}`,
+      privateGame.currentRole !== privateGame.initialRole ? `現在の役職: ${privateGame.currentRole}` : "",
       privateGame.nightResult?.text ? `夜行動結果: ${privateGame.nightResult.text}` : "夜行動結果: なし",
       gamePublic?.discussionDeadlineAt
         ? `議論期限: ${new Date(gamePublic.discussionDeadlineAt).toLocaleTimeString()}`
         : "議論期限: 無限",
-      "次段階で投票フェーズを実装します。",
+      isHost() ? "ホストは任意で投票フェーズへ進めます。" : "ホストが投票フェーズへ進めるまで待機します。",
+    ].filter(Boolean).join("\n");
+
+    renderDiscussionButtons();
+    return;
+  }
+
+  if (privateGame.phase === "vote") {
+    const lines = [
+      "投票フェーズです。",
+      `あなたの役職: ${privateGame.initialRole}`,
+      privateGame.currentRole !== privateGame.initialRole ? `現在の役職: ${privateGame.currentRole}` : "",
+      gamePublic?.voteDeadlineAt
+        ? `投票期限: ${new Date(gamePublic.voteDeadlineAt).toLocaleTimeString()}`
+        : "投票期限: 無限",
+    ].filter(Boolean);
+
+    if (privateGame.isVoteComplete) {
+      lines.push("");
+      lines.push("投票完了");
+      lines.push(privateGame.voteResult?.text || "");
+      lines.push("全員の投票完了を待っています。");
+    } else {
+      lines.push("");
+      lines.push("投票先を選択してください。");
+    }
+
+    refs.gameStatusText.textContent = lines.join("\n");
+    renderVoteButtons(privateGame);
+    return;
+  }
+
+  if (privateGame.phase === "voteComplete") {
+    refs.gameStatusText.textContent = [
+      "投票完了です。",
+      `あなたの役職: ${privateGame.initialRole}`,
+      privateGame.currentRole !== privateGame.initialRole ? `現在の役職: ${privateGame.currentRole}` : "",
+      privateGame.voteResult?.text ? `投票結果: ${privateGame.voteResult.text}` : "投票結果: なし",
+      "次段階で処刑・狩人追加処刑・勝敗判定・結果表示を実装します。",
       `狩人追加処刑: ${ONLINE_HUNTER_RULE.timeoutSeconds}秒、未送信時は追加処刑なし。`,
-    ].join("\n");
+    ].filter(Boolean).join("\n");
     return;
   }
 

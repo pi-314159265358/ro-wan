@@ -428,6 +428,7 @@ export function createInitialGameSetup(playerNames, settings, random = Math.rand
     nightActions: Array(playerCount).fill(null),
     nightResults: Array(playerCount).fill(null),
     votes: Array(playerCount).fill(null),
+    voteResults: Array(playerCount).fill(null),
     eliminatedPlayers: [],
     isPeaceVillage: false,
     mobVisits,
@@ -438,11 +439,26 @@ export function createInitialGameSetup(playerNames, settings, random = Math.rand
     nightDeadlineAt: null,
     discussionStartedAt: null,
     discussionDeadlineAt: null,
+    voteStartedAt: null,
+    voteDeadlineAt: null,
+    voteCompletedAt: null,
   };
 }
 
 function formatPlayerName(game, index) {
   return game.playerNames[index] || `プレイヤー${index + 1}`;
+}
+
+function formatVoteTarget(game, target) {
+  if (target === "peace") {
+    return "平和村を願う";
+  }
+
+  if (typeof target === "number" && game.playerNames[target]) {
+    return formatPlayerName(game, target);
+  }
+
+  return "未投票";
 }
 
 function getInitialWerewolfPartners(game, playerIndex) {
@@ -509,6 +525,24 @@ function buildPlayerChoice(game, targetIndex, kind, suffix = "") {
   };
 }
 
+function buildBasePlayerView(game, playerIndex) {
+  return {
+    phase: game.phase,
+    playerIndex,
+    initialRole: game.initialRoles[playerIndex],
+    currentRole: game.currentRoles[playerIndex],
+    roleHistory: game.roleHistories[playerIndex],
+    nightResult: game.nightResults[playerIndex],
+    voteResult: game.voteResults[playerIndex],
+    voteTarget: game.votes[playerIndex],
+    graveCount: game.initialGraveCards.length,
+    hasDeadPlayer: Boolean(game.deadPlayer),
+    nightDeadlineAt: game.nightDeadlineAt || null,
+    discussionDeadlineAt: game.discussionDeadlineAt || null,
+    voteDeadlineAt: game.voteDeadlineAt || null,
+  };
+}
+
 export function getNightActionView(game, playerIndex) {
   if (!game || game.phase !== "night") {
     return {
@@ -540,19 +574,11 @@ export function getNightActionView(game, playerIndex) {
 
   if (completed) {
     return {
-      phase: game.phase,
-      playerIndex,
-      initialRole: role,
-      currentRole: game.currentRoles[playerIndex],
-      roleHistory: game.roleHistories[playerIndex],
+      ...buildBasePlayerView(game, playerIndex),
       notifications,
       preInfo: "",
       choices: [],
       isNightComplete: true,
-      nightResult: result,
-      graveCount: game.initialGraveCards.length,
-      hasDeadPlayer: Boolean(game.deadPlayer),
-      nightDeadlineAt: game.nightDeadlineAt || null,
     };
   }
 
@@ -612,19 +638,57 @@ export function getNightActionView(game, playerIndex) {
   }
 
   return {
-    phase: game.phase,
-    playerIndex,
-    initialRole: role,
-    currentRole: game.currentRoles[playerIndex],
-    roleHistory: game.roleHistories[playerIndex],
+    ...buildBasePlayerView(game, playerIndex),
     notifications,
     preInfo,
     choices,
     isNightComplete: false,
-    nightResult: null,
-    graveCount: game.initialGraveCards.length,
-    hasDeadPlayer: Boolean(game.deadPlayer),
-    nightDeadlineAt: game.nightDeadlineAt || null,
+  };
+}
+
+export function getVoteActionView(game, playerIndex) {
+  const completed = game.votes[playerIndex] !== null;
+  const choices = [];
+
+  if (!completed) {
+    getOtherPlayerIndexes(game, playerIndex).forEach((targetIndex) => {
+      choices.push({
+        action: { kind: "vote", targetIndex },
+        label: `${formatPlayerName(game, targetIndex)}に投票`,
+      });
+    });
+
+    choices.push({
+      action: { kind: "peace" },
+      label: "平和村を願う",
+    });
+  }
+
+  return {
+    ...buildBasePlayerView(game, playerIndex),
+    choices,
+    isVoteComplete: completed,
+  };
+}
+
+export function getPlayerGameView(game, playerIndex) {
+  if (!game) {
+    return null;
+  }
+
+  if (game.phase === "night") {
+    return getNightActionView(game, playerIndex);
+  }
+
+  if (game.phase === "vote") {
+    return getVoteActionView(game, playerIndex);
+  }
+
+  return {
+    ...buildBasePlayerView(game, playerIndex),
+    choices: [],
+    isNightComplete: game.nightResults[playerIndex] !== null,
+    isVoteComplete: game.votes[playerIndex] !== null,
   };
 }
 
@@ -815,6 +879,71 @@ export function moveGameToDiscussion(game, nowValue = Date.now()) {
   } else {
     game.discussionDeadlineAt = null;
   }
+}
+
+export function moveGameToVote(game, nowValue = Date.now()) {
+  game.phase = "vote";
+  game.voteStartedAt = nowValue;
+
+  if (game.settings.voteSeconds > 0) {
+    game.voteDeadlineAt = nowValue + game.settings.voteSeconds * 1000;
+  } else {
+    game.voteDeadlineAt = null;
+  }
+}
+
+export function moveGameToVoteComplete(game, nowValue = Date.now()) {
+  game.phase = "voteComplete";
+  game.voteCompletedAt = nowValue;
+}
+
+export function createAutoVoteAction() {
+  return { kind: "peace" };
+}
+
+export function resolveVoteAction(game, playerIndex, actionInput = {}) {
+  if (!game || game.phase !== "vote") {
+    throw new Error("投票フェーズではありません");
+  }
+
+  if (game.votes[playerIndex] !== null) {
+    return game.voteResults[playerIndex];
+  }
+
+  const action = actionInput && typeof actionInput === "object" ? actionInput : {};
+  let target = "peace";
+
+  if (action.kind === "vote") {
+    const targetIndex = Number(action.targetIndex);
+
+    if (
+      Number.isInteger(targetIndex)
+      && targetIndex >= 0
+      && targetIndex < game.count
+      && targetIndex !== playerIndex
+    ) {
+      target = targetIndex;
+    }
+  }
+
+  if (action.kind === "peace") {
+    target = "peace";
+  }
+
+  const result = {
+    target,
+    text: `投票先: ${formatVoteTarget(game, target)}`,
+    completedAt: Date.now(),
+  };
+
+  game.votes[playerIndex] = target;
+  game.voteResults[playerIndex] = result;
+
+  return result;
+}
+
+export function isVoteComplete(game) {
+  return Boolean(game?.votes?.every((vote) => vote !== null));
 }
 
 export function computeVoteTotals(votes, currentRoles) {

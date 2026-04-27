@@ -102,9 +102,9 @@ export const DEFAULT_SETTINGS = {
 };
 
 export const ONLINE_HUNTER_RULE = {
-  timeoutSeconds: 60,
+  timeoutSeconds: 30,
   timeoutAction: "none",
-  description: "オンライン版のみ、狩人の追加処刑は60秒。未送信時は追加処刑なし。",
+  description: "オンライン版のみ、狩人の追加処刑は30秒。未送信時は追加処刑なし。",
 };
 
 export function isWerewolfRole(role) {
@@ -434,7 +434,387 @@ export function createInitialGameSetup(playerNames, settings, random = Math.rand
     breadDelivery,
     deadPlayer,
     createdAt: Date.now(),
+    nightStartedAt: Date.now(),
+    nightDeadlineAt: null,
+    discussionStartedAt: null,
+    discussionDeadlineAt: null,
   };
+}
+
+function formatPlayerName(game, index) {
+  return game.playerNames[index] || `プレイヤー${index + 1}`;
+}
+
+function getInitialWerewolfPartners(game, playerIndex) {
+  return game.initialRoles
+    .map((role, index) => ({ role, index }))
+    .filter((item) => isWerewolfRole(item.role) && item.index !== playerIndex);
+}
+
+function addRoleHistory(game, index, newRole) {
+  const history = game.roleHistories[index];
+
+  if (history[history.length - 1] !== newRole) {
+    history.push(newRole);
+  }
+}
+
+function swapPlayerRoles(game, indexA, indexB) {
+  const roleA = game.currentRoles[indexA];
+  const roleB = game.currentRoles[indexB];
+
+  game.currentRoles[indexA] = roleB;
+  game.currentRoles[indexB] = roleA;
+
+  addRoleHistory(game, indexA, roleB);
+  addRoleHistory(game, indexB, roleA);
+}
+
+function swapPlayerWithGrave(game, playerIndex, graveIndex) {
+  const playerRole = game.currentRoles[playerIndex];
+  const graveRole = game.currentGraveCards[graveIndex];
+
+  game.currentRoles[playerIndex] = graveRole;
+  game.currentGraveCards[graveIndex] = playerRole;
+
+  addRoleHistory(game, playerIndex, graveRole);
+}
+
+function getOtherPlayerIndexes(game, playerIndex) {
+  return Array.from({ length: game.count }, (_, index) => index)
+    .filter((index) => index !== playerIndex);
+}
+
+function pickRandomPlayerIndex(game, playerIndex, random = Math.random) {
+  const candidates = getOtherPlayerIndexes(game, playerIndex);
+  return candidates[Math.floor(random() * candidates.length)];
+}
+
+function pickRandomGraveIndex(game, random = Math.random) {
+  return Math.floor(random() * game.currentGraveCards.length);
+}
+
+function getMobVisitForActor(game, actorIndex) {
+  return game.mobVisits.find((item) => item.actorIndex === actorIndex) || null;
+}
+
+function getMobVisitForTarget(game, targetIndex) {
+  return game.mobVisits.find((item) => item.targetIndex === targetIndex) || null;
+}
+
+function buildPlayerChoice(game, targetIndex, kind, suffix = "") {
+  return {
+    action: { kind, targetIndex },
+    label: `${formatPlayerName(game, targetIndex)}${suffix}`,
+  };
+}
+
+export function getNightActionView(game, playerIndex) {
+  if (!game || game.phase !== "night") {
+    return {
+      phase: game?.phase || "unknown",
+      choices: [],
+      notifications: [],
+      preInfo: "",
+      isNightComplete: true,
+      nightResult: null,
+    };
+  }
+
+  const role = game.initialRoles[playerIndex];
+  const choices = [];
+  const notifications = [];
+  const result = game.nightResults[playerIndex] || null;
+  const completed = Boolean(result);
+
+  if (game.breadDelivery && game.breadDelivery.targetIndex === playerIndex) {
+    notifications.push("パンが届きました");
+  }
+
+  const mobVisit = getMobVisitForTarget(game, playerIndex);
+  if (mobVisit) {
+    notifications.push(`${formatPlayerName(game, mobVisit.actorIndex)}が訪問してきました`);
+  }
+
+  let preInfo = "";
+
+  if (completed) {
+    return {
+      phase: game.phase,
+      playerIndex,
+      initialRole: role,
+      currentRole: game.currentRoles[playerIndex],
+      roleHistory: game.roleHistories[playerIndex],
+      notifications,
+      preInfo: "",
+      choices: [],
+      isNightComplete: true,
+      nightResult: result,
+      graveCount: game.initialGraveCards.length,
+      hasDeadPlayer: Boolean(game.deadPlayer),
+      nightDeadlineAt: game.nightDeadlineAt || null,
+    };
+  }
+
+  if (role === "人狼") {
+    if (isTwoPlayerPatternB(game.count, game.pattern)) {
+      preInfo = "人狼は夜の行動がありません";
+    } else {
+      const partners = getInitialWerewolfPartners(game, playerIndex);
+      preInfo = partners.length === 0
+        ? "仲間はいません"
+        : `仲間は ${partners.map((item) => formatPlayerName(game, item.index)).join("、")} です`;
+    }
+    choices.push({ action: { kind: "none" }, label: "確認" });
+  } else if (role === "大狼") {
+    const partners = getInitialWerewolfPartners(game, playerIndex);
+    preInfo = partners.length === 0
+      ? "仲間はいません"
+      : `仲間は ${partners.map((item) => formatPlayerName(game, item.index)).join("、")} です`;
+    choices.push({ action: { kind: "lookGrave" }, label: "墓地を見る" });
+  } else if (role === "狂人") {
+    preInfo = "狂人は夜の行動がありません";
+    choices.push({ action: { kind: "none" }, label: "確認" });
+  } else if (role === "占い師") {
+    if (isTwoPlayerCount(game.count)) {
+      choices.push({ action: { kind: "lookGrave" }, label: "墓地を見る" });
+    } else {
+      getOtherPlayerIndexes(game, playerIndex).forEach((targetIndex) => {
+        choices.push(buildPlayerChoice(game, targetIndex, "lookPlayer"));
+      });
+      choices.push({ action: { kind: "lookGrave" }, label: "墓地を見る" });
+    }
+  } else if (role === "怪盗") {
+    getOtherPlayerIndexes(game, playerIndex).forEach((targetIndex) => {
+      choices.push(buildPlayerChoice(game, targetIndex, "swapPlayer", "と交換"));
+    });
+  } else if (role === "吸血鬼") {
+    if (isTwoPlayerCount(game.count)) {
+      choices.push({ action: { kind: "randomExchange" }, label: "交換する" });
+    } else {
+      getOtherPlayerIndexes(game, playerIndex).forEach((targetIndex) => {
+        choices.push(buildPlayerChoice(game, targetIndex, "swapPlayer", "と交換"));
+      });
+      choices.push({ action: { kind: "swapGrave" }, label: "墓地と交換" });
+    }
+  } else if (role === "モブおじさん") {
+    choices.push({ action: { kind: "visit" }, label: "誰かを訪問する" });
+  } else if (role === "パン屋") {
+    preInfo = "誰かにパンを届けました";
+    choices.push({ action: { kind: "none" }, label: "確認" });
+  } else if (role === "魔女っ子") {
+    getOtherPlayerIndexes(game, playerIndex).forEach((targetIndex) => {
+      choices.push(buildPlayerChoice(game, targetIndex, "lookPlayer"));
+    });
+  } else {
+    preInfo = `${role}は夜の行動がありません`;
+    choices.push({ action: { kind: "none" }, label: "確認" });
+  }
+
+  return {
+    phase: game.phase,
+    playerIndex,
+    initialRole: role,
+    currentRole: game.currentRoles[playerIndex],
+    roleHistory: game.roleHistories[playerIndex],
+    notifications,
+    preInfo,
+    choices,
+    isNightComplete: false,
+    nightResult: null,
+    graveCount: game.initialGraveCards.length,
+    hasDeadPlayer: Boolean(game.deadPlayer),
+    nightDeadlineAt: game.nightDeadlineAt || null,
+  };
+}
+
+export function createAutoNightAction(game, playerIndex, random = Math.random) {
+  const role = game.initialRoles[playerIndex];
+
+  if (role === "占い師") {
+    if (isTwoPlayerCount(game.count)) {
+      return { kind: "lookGrave" };
+    }
+
+    const choices = [
+      ...getOtherPlayerIndexes(game, playerIndex).map((targetIndex) => ({
+        kind: "lookPlayer",
+        targetIndex,
+      })),
+      { kind: "lookGrave" },
+    ];
+
+    return choices[Math.floor(random() * choices.length)];
+  }
+
+  if (role === "怪盗") {
+    return {
+      kind: "swapPlayer",
+      targetIndex: pickRandomPlayerIndex(game, playerIndex, random),
+    };
+  }
+
+  if (role === "吸血鬼") {
+    if (isTwoPlayerCount(game.count)) {
+      return { kind: "randomExchange" };
+    }
+
+    const choices = [
+      ...getOtherPlayerIndexes(game, playerIndex).map((targetIndex) => ({
+        kind: "swapPlayer",
+        targetIndex,
+      })),
+      { kind: "swapGrave" },
+    ];
+
+    return choices[Math.floor(random() * choices.length)];
+  }
+
+  if (role === "魔女っ子") {
+    return {
+      kind: "lookPlayer",
+      targetIndex: pickRandomPlayerIndex(game, playerIndex, random),
+    };
+  }
+
+  if (role === "大狼") {
+    return { kind: "lookGrave" };
+  }
+
+  if (role === "モブおじさん") {
+    return { kind: "visit" };
+  }
+
+  return { kind: "none" };
+}
+
+export function resolveNightAction(game, playerIndex, actionInput = {}, random = Math.random) {
+  if (!game || game.phase !== "night") {
+    throw new Error("夜フェーズではありません");
+  }
+
+  if (game.nightResults[playerIndex]) {
+    return game.nightResults[playerIndex];
+  }
+
+  const role = game.initialRoles[playerIndex];
+  const action = actionInput && typeof actionInput === "object" ? actionInput : {};
+  let text = "";
+
+  if (role === "人狼") {
+    if (isTwoPlayerPatternB(game.count, game.pattern)) {
+      text = "人狼は夜の行動がありません";
+    } else {
+      const partners = getInitialWerewolfPartners(game, playerIndex);
+      text = partners.length === 0
+        ? "仲間はいません"
+        : `仲間は ${partners.map((item) => formatPlayerName(game, item.index)).join("、")} です`;
+    }
+  } else if (role === "大狼") {
+    if (isTwoPlayerCount(game.count)) {
+      const graveIndex = pickRandomGraveIndex(game, random);
+      text = `墓地の1枚は ${game.initialGraveCards[graveIndex]} です`;
+    } else {
+      text = `墓地は ${game.initialGraveCards.join("、")} です`;
+    }
+  } else if (role === "狂人") {
+    text = "狂人は夜の行動がありません";
+  } else if (role === "占い師") {
+    if (isTwoPlayerCount(game.count) || action.kind === "lookGrave") {
+      if (isTwoPlayerCount(game.count)) {
+        const graveIndex = pickRandomGraveIndex(game, random);
+        text = `墓地の1枚は ${game.initialGraveCards[graveIndex]} です`;
+      } else {
+        text = `墓地は ${game.initialGraveCards.join("、")} です`;
+      }
+    } else {
+      const targetIndex = Number(action.targetIndex);
+      const safeTargetIndex = targetIndex !== playerIndex && game.initialRoles[targetIndex] !== undefined
+        ? targetIndex
+        : pickRandomPlayerIndex(game, playerIndex, random);
+      text = `${formatPlayerName(game, safeTargetIndex)}の役職は ${game.initialRoles[safeTargetIndex]} です`;
+    }
+  } else if (role === "怪盗") {
+    const targetIndex = Number(action.targetIndex);
+    const safeTargetIndex = targetIndex !== playerIndex && game.currentRoles[targetIndex] !== undefined
+      ? targetIndex
+      : pickRandomPlayerIndex(game, playerIndex, random);
+
+    swapPlayerRoles(game, playerIndex, safeTargetIndex);
+    text = `${formatPlayerName(game, safeTargetIndex)}と交換しました。あなたの新しい役職は ${game.currentRoles[playerIndex]} です`;
+  } else if (role === "吸血鬼") {
+    if (isTwoPlayerCount(game.count)) {
+      const otherPlayerIndex = getOtherPlayerIndexes(game, playerIndex)[0];
+      const choices = [
+        { type: "player", index: otherPlayerIndex, label: formatPlayerName(game, otherPlayerIndex) },
+        { type: "grave", index: 0, label: "墓地" },
+        { type: "grave", index: 1, label: "墓地" },
+      ];
+      const choice = choices[Math.floor(random() * choices.length)];
+
+      if (choice.type === "player") {
+        swapPlayerRoles(game, playerIndex, choice.index);
+      } else {
+        swapPlayerWithGrave(game, playerIndex, choice.index);
+      }
+
+      text = `${choice.label}と交換して、新しい役職は ${game.currentRoles[playerIndex]} です`;
+    } else if (action.kind === "swapGrave") {
+      const graveIndex = pickRandomGraveIndex(game, random);
+      swapPlayerWithGrave(game, playerIndex, graveIndex);
+      text = `墓地${graveIndex + 1}と交換しました。あなたの新しい役職は ${game.currentRoles[playerIndex]} です`;
+    } else {
+      const targetIndex = Number(action.targetIndex);
+      const safeTargetIndex = targetIndex !== playerIndex && game.currentRoles[targetIndex] !== undefined
+        ? targetIndex
+        : pickRandomPlayerIndex(game, playerIndex, random);
+
+      swapPlayerRoles(game, playerIndex, safeTargetIndex);
+      text = `${formatPlayerName(game, safeTargetIndex)}と交換しました。あなたの新しい役職は ${game.currentRoles[playerIndex]} です`;
+    }
+  } else if (role === "モブおじさん") {
+    const visit = getMobVisitForActor(game, playerIndex);
+    text = visit
+      ? `${formatPlayerName(game, visit.targetIndex)}を訪問し熱い夜を過ごしました`
+      : "訪問相手がいません";
+  } else if (role === "パン屋") {
+    text = "誰かにパンを届けました";
+  } else if (role === "魔女っ子") {
+    const targetIndex = Number(action.targetIndex);
+    const safeTargetIndex = targetIndex !== playerIndex && game.initialRoles[targetIndex] !== undefined
+      ? targetIndex
+      : pickRandomPlayerIndex(game, playerIndex, random);
+
+    text = `${formatPlayerName(game, safeTargetIndex)}の役職は ${game.initialRoles[safeTargetIndex]} です`;
+  } else {
+    text = `${role}は夜の行動がありません`;
+  }
+
+  const result = {
+    text,
+    action,
+    completedAt: Date.now(),
+  };
+
+  game.nightActions[playerIndex] = action;
+  game.nightResults[playerIndex] = result;
+
+  return result;
+}
+
+export function isNightComplete(game) {
+  return Boolean(game?.nightResults?.every((result) => result !== null));
+}
+
+export function moveGameToDiscussion(game, nowValue = Date.now()) {
+  game.phase = "discussion";
+  game.discussionStartedAt = nowValue;
+
+  if (game.settings.discussionSeconds > 0) {
+    game.discussionDeadlineAt = nowValue + game.settings.discussionSeconds * 1000;
+  } else {
+    game.discussionDeadlineAt = null;
+  }
 }
 
 export function computeVoteTotals(votes, currentRoles) {

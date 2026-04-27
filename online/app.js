@@ -52,6 +52,7 @@ const refs = {
 
   gamePanel: document.getElementById("gamePanel"),
   gameStatusText: document.getElementById("gameStatusText"),
+  nightActionButtons: document.getElementById("nightActionButtons"),
 };
 
 const state = {
@@ -302,16 +303,30 @@ function renderReconnectArea() {
   refs.reconnectArea.classList.toggle("hidden", !session);
 }
 
-function getPhaseLabel(phase) {
-  if (phase === "lobby") {
+function getPhaseLabel(snapshot) {
+  if (!snapshot) {
+    return "不明";
+  }
+
+  if (snapshot.phase === "lobby") {
     return "ロビー";
   }
 
-  if (phase === "started") {
+  if (snapshot.phase === "started") {
+    const gamePhase = snapshot.gamePublic?.phase;
+
+    if (gamePhase === "night") {
+      return "夜フェーズ";
+    }
+
+    if (gamePhase === "discussion") {
+      return "議論フェーズ";
+    }
+
     return "ゲーム開始";
   }
 
-  return phase || "不明";
+  return snapshot.phase || "不明";
 }
 
 function isHost() {
@@ -523,7 +538,32 @@ function renderPlayerTable() {
   });
 }
 
+function sendNightAction(action) {
+  refs.nightActionButtons.innerHTML = "";
+  sendSocket("submitNightAction", { action });
+}
+
+function renderNightButtons(privateGame) {
+  refs.nightActionButtons.innerHTML = "";
+
+  if (!privateGame || privateGame.phase !== "night" || privateGame.isNightComplete) {
+    return;
+  }
+
+  privateGame.choices.forEach((choice) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = choice.label;
+    button.addEventListener("click", () => {
+      sendNightAction(choice.action);
+    });
+    refs.nightActionButtons.appendChild(button);
+  });
+}
+
 function renderGamePanel() {
+  refs.nightActionButtons.innerHTML = "";
+
   if (!state.snapshot) {
     refs.gamePanel.classList.add("hidden");
     return;
@@ -540,6 +580,7 @@ function renderGamePanel() {
   });
 
   const privateGame = state.privateGame;
+  const gamePublic = state.snapshot.gamePublic;
 
   if (!privateGame) {
     refs.gameStatusText.textContent = [
@@ -549,18 +590,61 @@ function renderGamePanel() {
     return;
   }
 
+  if (privateGame.phase === "night") {
+    const lines = [
+      "夜フェーズです。",
+      `人数: ${settings.playerCount}人`,
+      `パターン: ${settings.pattern}`,
+      `あなたの順番: ${privateGame.playerIndex + 1}`,
+      `あなたの役職: ${privateGame.initialRole}`,
+      `墓地枚数: ${privateGame.graveCount}枚`,
+      privateGame.hasDeadPlayer ? "3人目の死体があります" : "",
+      privateGame.nightDeadlineAt ? `夜行動期限: ${new Date(privateGame.nightDeadlineAt).toLocaleTimeString()}` : "夜行動期限: 無限",
+    ].filter(Boolean);
+
+    if (privateGame.notifications?.length > 0) {
+      lines.push("");
+      lines.push(privateGame.notifications.join("\n"));
+    }
+
+    if (privateGame.preInfo) {
+      lines.push("");
+      lines.push(privateGame.preInfo);
+    }
+
+    if (privateGame.isNightComplete) {
+      lines.push("");
+      lines.push("夜行動完了");
+      lines.push(privateGame.nightResult?.text || "");
+      lines.push("全員の夜行動完了を待っています。");
+    } else {
+      lines.push("");
+      lines.push("夜行動を選択してください。");
+    }
+
+    refs.gameStatusText.textContent = lines.join("\n");
+    renderNightButtons(privateGame);
+    return;
+  }
+
+  if (privateGame.phase === "discussion") {
+    refs.gameStatusText.textContent = [
+      "議論フェーズです。",
+      `あなたの役職: ${privateGame.initialRole}`,
+      privateGame.nightResult?.text ? `夜行動結果: ${privateGame.nightResult.text}` : "夜行動結果: なし",
+      gamePublic?.discussionDeadlineAt
+        ? `議論期限: ${new Date(gamePublic.discussionDeadlineAt).toLocaleTimeString()}`
+        : "議論期限: 無限",
+      "次段階で投票フェーズを実装します。",
+      `狩人追加処刑: ${ONLINE_HUNTER_RULE.timeoutSeconds}秒、未送信時は追加処刑なし。`,
+    ].join("\n");
+    return;
+  }
+
   refs.gameStatusText.textContent = [
-    "ゲーム開始状態です。",
-    `人数: ${settings.playerCount}人`,
-    `パターン: ${settings.pattern}`,
-    `あなたの順番: ${privateGame.playerIndex + 1}`,
-    `あなたの役職: ${privateGame.initialRole}`,
-    `墓地枚数: ${privateGame.graveCount}枚`,
-    privateGame.hasDeadPlayer ? "3人目の死体があります" : "",
-    "現在はサーバー側で配役作成まで完了しています。",
-    "次段階で夜行動・投票・結果表示を実装します。",
-    `狩人追加処刑: ${ONLINE_HUNTER_RULE.timeoutSeconds}秒、未送信時は追加処刑なし。`,
-  ].filter(Boolean).join("\n");
+    "ゲーム進行中です。",
+    `現在フェーズ: ${privateGame.phase}`,
+  ].join("\n");
 }
 
 function render() {
@@ -579,7 +663,7 @@ function render() {
   const playerCount = state.snapshot.players.length;
 
   refs.roomCodeText.textContent = state.snapshot.roomId;
-  refs.phaseText.textContent = getPhaseLabel(state.snapshot.phase);
+  refs.phaseText.textContent = getPhaseLabel(state.snapshot);
 
   renderSettings();
   renderPlayerTable();

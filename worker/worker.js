@@ -48,10 +48,7 @@ function jsonCors(payload, status = 200) {
 
 function withCors(response) {
   const headers = new Headers(response.headers);
-
-  Object.entries(CORS_HEADERS).forEach(([key, value]) => {
-    headers.set(key, value);
-  });
+  Object.entries(CORS_HEADERS).forEach(([key, value]) => headers.set(key, value));
 
   return new Response(response.body, {
     status: response.status,
@@ -61,10 +58,7 @@ function withCors(response) {
 }
 
 function optionResponse() {
-  return new Response(null, {
-    status: 204,
-    headers: CORS_HEADERS,
-  });
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
 function randomString(length, alphabet) {
@@ -72,7 +66,6 @@ function randomString(length, alphabet) {
   crypto.getRandomValues(values);
 
   let result = "";
-
   for (let i = 0; i < length; i += 1) {
     result += alphabet[values[i] % alphabet.length];
   }
@@ -101,15 +94,11 @@ function normalizeUniqueName(players, requestedName, excludePlayerId = null) {
       .map((player) => player.name)
   );
 
-  if (!usedNames.has(baseName)) {
-    return baseName;
-  }
+  if (!usedNames.has(baseName)) return baseName;
 
   for (let number = 2; number <= 99; number += 1) {
     const candidate = `${baseName}${number}`;
-    if (!usedNames.has(candidate)) {
-      return candidate;
-    }
+    if (!usedNames.has(candidate)) return candidate;
   }
 
   return `${baseName}${Date.now() % 1000}`;
@@ -120,10 +109,7 @@ function now() {
 }
 
 function isRoomExpired(room) {
-  if (!room?.updatedAt) {
-    return false;
-  }
-
+  if (!room?.updatedAt) return false;
   return now() - room.updatedAt > ROOM_TTL_MS;
 }
 
@@ -146,45 +132,27 @@ export class RoomDurableObject {
   async fetch(request) {
     const url = new URL(request.url);
 
-    if (request.method === "OPTIONS") {
-      return optionResponse();
-    }
-
-    if (url.pathname === "/create" && request.method === "POST") {
-      return this.createRoom(request);
-    }
-
-    if (url.pathname === "/join" && request.method === "POST") {
-      return this.joinRoom(request);
-    }
-
-    if (url.pathname === "/socket" && request.method === "GET") {
-      return this.connectSocket(request);
-    }
+    if (request.method === "OPTIONS") return optionResponse();
+    if (url.pathname === "/create" && request.method === "POST") return this.createRoom(request);
+    if (url.pathname === "/join" && request.method === "POST") return this.joinRoom(request);
+    if (url.pathname === "/socket" && request.method === "GET") return this.connectSocket(request);
 
     return jsonResponse({ ok: false, error: "Not found" }, 404);
   }
 
   async alarm() {
     const room = await this.getFreshRoom();
-
-    if (!room || room.phase !== "started" || !room.game) {
-      return;
-    }
+    if (!room || room.phase !== "started" || !room.game) return;
 
     const currentTime = now();
 
     if (room.game.phase === "night") {
       const deadlineAt = room.game.nightDeadlineAt;
-
-      if (!deadlineAt || currentTime < deadlineAt) {
-        return;
-      }
+      if (!deadlineAt || currentTime < deadlineAt) return;
 
       for (let i = 0; i < room.game.nightResults.length; i += 1) {
         if (!room.game.nightResults[i]) {
-          const action = createAutoNightAction(room.game, i);
-          resolveNightAction(room.game, i, action);
+          resolveNightAction(room.game, i, createAutoNightAction(room.game, i));
         }
       }
 
@@ -200,10 +168,7 @@ export class RoomDurableObject {
 
     if (room.game.phase === "discussion") {
       const deadlineAt = room.game.discussionDeadlineAt;
-
-      if (!deadlineAt || currentTime < deadlineAt) {
-        return;
-      }
+      if (!deadlineAt || currentTime < deadlineAt) return;
 
       moveGameToVote(room.game, currentTime);
       await this.saveRoom(room);
@@ -214,10 +179,7 @@ export class RoomDurableObject {
 
     if (room.game.phase === "vote") {
       const deadlineAt = room.game.voteDeadlineAt;
-
-      if (!deadlineAt || currentTime < deadlineAt) {
-        return;
-      }
+      if (!deadlineAt || currentTime < deadlineAt) return;
 
       for (let i = 0; i < room.game.votes.length; i += 1) {
         if (room.game.votes[i] === null) {
@@ -237,10 +199,7 @@ export class RoomDurableObject {
 
     if (room.game.phase === "hunterExecution") {
       const deadlineAt = room.game.hunterDeadlineAt;
-
-      if (!deadlineAt || currentTime < deadlineAt) {
-        return;
-      }
+      if (!deadlineAt || currentTime < deadlineAt) return;
 
       resolveHunterTimeout(room.game, currentTime);
 
@@ -256,9 +215,7 @@ export class RoomDurableObject {
   async getFreshRoom() {
     const room = await this.getRoom();
 
-    if (!room) {
-      return null;
-    }
+    if (!room) return null;
 
     if (isRoomExpired(room)) {
       await this.state.storage.delete("room");
@@ -274,9 +231,7 @@ export class RoomDurableObject {
   }
 
   async setGameAlarmIfNeeded(room) {
-    if (!room.game) {
-      return;
-    }
+    if (!room.game) return;
 
     if (room.game.phase === "night" && room.game.nightDeadlineAt) {
       await this.state.storage.setAlarm(room.game.nightDeadlineAt + 250);
@@ -314,9 +269,7 @@ export class RoomDurableObject {
         connected: Boolean(player.connected),
         joinedAt: player.joinedAt,
       })),
-      settings: normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
-        includeManual: false,
-      }),
+      settings: normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS),
       gamePublic: room.game ? {
         phase: room.game.phase,
         count: room.game.count,
@@ -332,23 +285,16 @@ export class RoomDurableObject {
   }
 
   buildPrivateGame(room, playerId) {
-    if (!room.game || room.phase !== "started") {
-      return null;
-    }
+    if (!room.game || room.phase !== "started") return null;
 
-    const playerIndex = room.players.findIndex((player) => player.id === playerId);
-
-    if (playerIndex < 0) {
-      return null;
-    }
+    const activeIds = room.game.activePlayerIds || room.players.slice(0, room.game.count).map((player) => player.id);
+    const playerIndex = activeIds.indexOf(playerId);
 
     return getPlayerGameView(room.game, playerIndex);
   }
 
   findPlayerByToken(room, playerId, token) {
-    return room.players.find((player) => {
-      return player.id === playerId && player.token === token;
-    });
+    return room.players.find((player) => player.id === playerId && player.token === token);
   }
 
   async createRoom(request) {
@@ -385,9 +331,7 @@ export class RoomDurableObject {
       startedAt: null,
       hostPlayerId: player.id,
       players: [player],
-      settings: normalizeOnlineSettings(body.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
-        includeManual: false,
-      }),
+      settings: normalizeOnlineSettings(body.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS),
       game: null,
     };
 
@@ -431,14 +375,6 @@ export class RoomDurableObject {
 
     if (room.phase !== "lobby") {
       return jsonResponse({ ok: false, error: "開始後の新規参加はできません" }, 400);
-    }
-
-    const settings = normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
-      includeManual: false,
-    });
-
-    if (room.players.length >= settings.playerCount) {
-      return jsonResponse({ ok: false, error: "設定人数が満員です" }, 400);
     }
 
     if (room.players.length >= MAX_PLAYERS) {
@@ -503,10 +439,7 @@ export class RoomDurableObject {
       }
     }
 
-    this.sessions.set(playerId, {
-      socket: server,
-      sessionId,
-    });
+    this.sessions.set(playerId, { socket: server, sessionId });
 
     player.connected = true;
     await this.saveRoom(room);
@@ -567,59 +500,18 @@ export class RoomDurableObject {
 
     const isHost = playerId === room.hostPlayerId;
 
-    if (message.type === "updateSettings") {
-      await this.handleUpdateSettings(room, playerId, message.settings, isHost);
-      return;
-    }
-
-    if (message.type === "startGame") {
-      await this.handleStartGame(room, playerId, isHost);
-      return;
-    }
-
-    if (message.type === "submitNightAction") {
-      await this.handleSubmitNightAction(room, playerId, message.action);
-      return;
-    }
-
-    if (message.type === "startVotePhase") {
-      await this.handleStartVotePhase(room, playerId, isHost);
-      return;
-    }
-
-    if (message.type === "submitVote") {
-      await this.handleSubmitVote(room, playerId, message.action);
-      return;
-    }
-
-    if (message.type === "submitHunterAction") {
-      await this.handleSubmitHunterAction(room, playerId, message.action);
-      return;
-    }
-
-    if (message.type === "backToLobby") {
-      await this.handleBackToLobby(room, isHost);
-      return;
-    }
-
-    if (message.type === "reorderPlayers") {
-      await this.handleReorderPlayers(room, message.playerIds, isHost);
-      return;
-    }
-
-    if (message.type === "removePlayer") {
-      await this.handleRemovePlayer(room, message.playerId, isHost);
-      return;
-    }
-
-    if (message.type === "updateName") {
-      await this.handleUpdateName(room, playerId, message);
-      return;
-    }
-
-    if (message.type === "ping") {
-      await this.sendToPlayer(playerId, { type: "pong", time: now() });
-    }
+    if (message.type === "updateSettings") return this.handleUpdateSettings(room, playerId, message.settings, isHost);
+    if (message.type === "startGame") return this.handleStartGame(room, playerId, isHost);
+    if (message.type === "replaySameSettings") return this.handleReplaySameSettings(room, playerId, isHost);
+    if (message.type === "submitNightAction") return this.handleSubmitNightAction(room, playerId, message.action);
+    if (message.type === "startVotePhase") return this.handleStartVotePhase(room, playerId, isHost);
+    if (message.type === "submitVote") return this.handleSubmitVote(room, playerId, message.action);
+    if (message.type === "submitHunterAction") return this.handleSubmitHunterAction(room, playerId, message.action);
+    if (message.type === "backToLobby") return this.handleBackToLobby(room, isHost);
+    if (message.type === "reorderPlayers") return this.handleReorderPlayers(room, message.playerIds, isHost);
+    if (message.type === "removePlayer") return this.handleRemovePlayer(room, message.playerId, isHost);
+    if (message.type === "updateName") return this.handleUpdateName(room, playerId, message);
+    if (message.type === "ping") return this.sendToPlayer(playerId, { type: "pong", time: now() });
   }
 
   async handleUpdateSettings(room, playerId, settingsInput, isHost) {
@@ -633,26 +525,73 @@ export class RoomDurableObject {
       return;
     }
 
-    const currentSettings = normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
-      includeManual: false,
-    });
-
-    const nextSettings = normalizeOnlineSettings(settingsInput || {}, currentSettings, {
-      includeManual: false,
-    });
-
-    if (nextSettings.playerCount < room.players.length) {
-      await this.sendError(playerId, "現在の参加者数より少ない人数にはできません");
-      return;
-    }
-
-    room.settings = nextSettings;
+    const currentSettings = normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS);
+    room.settings = normalizeOnlineSettings(settingsInput || {}, currentSettings);
 
     await this.saveRoom(room);
-    await this.sendToPlayer(playerId, {
-      type: "settingsSaved",
-    });
+    await this.sendToPlayer(playerId, { type: "settingsSaved" });
     await this.broadcastSnapshot();
+  }
+
+  validateStart(room) {
+    const settings = normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS);
+
+    if (room.players.length < settings.playerCount) {
+      return `${settings.playerCount}人以上で開始できます`;
+    }
+
+    const activePlayers = room.players.slice(0, settings.playerCount);
+
+    if (activePlayers.some((player) => !player.connected)) {
+      return "参加枠に切断中の参加者がいるため開始できません";
+    }
+
+    if (settings.playerCount < MIN_PLAYERS) {
+      return `${MIN_PLAYERS}人以上で開始できます`;
+    }
+
+    if (settings.playerCount > MAX_PLAYERS) {
+      return `${MAX_PLAYERS}人以下で開始できます`;
+    }
+
+    return "";
+  }
+
+  async startGameWithCurrentSettings(room, playerId) {
+    const error = this.validateStart(room);
+    if (error) {
+      await this.sendError(playerId, error);
+      return false;
+    }
+
+    const settings = normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS);
+    const activePlayers = room.players.slice(0, settings.playerCount);
+
+    try {
+      room.game = createInitialGameSetup(
+        activePlayers.map((player) => player.name),
+        settings
+      );
+      room.game.activePlayerIds = activePlayers.map((player) => player.id);
+    } catch (errorObject) {
+      await this.sendError(
+        playerId,
+        errorObject instanceof Error ? errorObject.message : "配役作成に失敗しました"
+      );
+      return false;
+    }
+
+    room.phase = "started";
+    room.startedAt = now();
+    room.game.nightStartedAt = now();
+    room.game.nightDeadlineAt = settings.nightSeconds > 0
+      ? room.game.nightStartedAt + settings.nightSeconds * 1000
+      : null;
+
+    await this.saveRoom(room);
+    await this.setGameAlarmIfNeeded(room);
+    await this.broadcastSnapshot();
+    return true;
   }
 
   async handleStartGame(room, playerId, isHost) {
@@ -666,57 +605,21 @@ export class RoomDurableObject {
       return;
     }
 
-    const settings = normalizeOnlineSettings(room.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
-      includeManual: false,
-    });
+    await this.startGameWithCurrentSettings(room, playerId);
+  }
 
-    if (room.players.length !== settings.playerCount) {
-      await this.sendError(playerId, `${settings.playerCount}人ちょうどで開始できます`);
+  async handleReplaySameSettings(room, playerId, isHost) {
+    if (!isHost) {
+      await this.sendError(playerId, "ホストのみ再戦できます");
       return;
     }
 
-    if (room.players.some((player) => !player.connected)) {
-      await this.sendError(playerId, "切断中の参加者がいるため開始できません");
+    if (room.phase !== "started" || !room.game || room.game.phase !== "result") {
+      await this.sendError(playerId, "結果表示中のみ再戦できます");
       return;
     }
 
-    if (room.players.length < MIN_PLAYERS) {
-      await this.sendError(playerId, `${MIN_PLAYERS}人以上で開始できます`);
-      return;
-    }
-
-    if (room.players.length > MAX_PLAYERS) {
-      await this.sendError(playerId, `${MAX_PLAYERS}人以下で開始できます`);
-      return;
-    }
-
-    try {
-      room.game = createInitialGameSetup(
-        room.players.map((player) => player.name),
-        settings
-      );
-    } catch (error) {
-      await this.sendError(
-        playerId,
-        error instanceof Error ? error.message : "配役作成に失敗しました"
-      );
-      return;
-    }
-
-    room.phase = "started";
-    room.startedAt = now();
-
-    room.game.nightStartedAt = now();
-
-    if (settings.nightSeconds > 0) {
-      room.game.nightDeadlineAt = room.game.nightStartedAt + settings.nightSeconds * 1000;
-    } else {
-      room.game.nightDeadlineAt = null;
-    }
-
-    await this.saveRoom(room);
-    await this.setGameAlarmIfNeeded(room);
-    await this.broadcastSnapshot();
+    await this.startGameWithCurrentSettings(room, playerId);
   }
 
   async handleSubmitNightAction(room, playerId, action) {
@@ -725,20 +628,17 @@ export class RoomDurableObject {
       return;
     }
 
-    const playerIndex = room.players.findIndex((player) => player.id === playerId);
+    const playerIndex = (room.game.activePlayerIds || []).indexOf(playerId);
 
     if (playerIndex < 0) {
-      await this.sendError(playerId, "プレイヤーが見つかりません");
+      await this.sendError(playerId, "このゲームでは待機枠です");
       return;
     }
 
     try {
       resolveNightAction(room.game, playerIndex, action);
     } catch (error) {
-      await this.sendError(
-        playerId,
-        error instanceof Error ? error.message : "夜行動の処理に失敗しました"
-      );
+      await this.sendError(playerId, error instanceof Error ? error.message : "夜行動の処理に失敗しました");
       return;
     }
 
@@ -775,20 +675,17 @@ export class RoomDurableObject {
       return;
     }
 
-    const playerIndex = room.players.findIndex((player) => player.id === playerId);
+    const playerIndex = (room.game.activePlayerIds || []).indexOf(playerId);
 
     if (playerIndex < 0) {
-      await this.sendError(playerId, "プレイヤーが見つかりません");
+      await this.sendError(playerId, "このゲームでは待機枠です");
       return;
     }
 
     try {
       resolveVoteAction(room.game, playerIndex, action);
     } catch (error) {
-      await this.sendError(
-        playerId,
-        error instanceof Error ? error.message : "投票処理に失敗しました"
-      );
+      await this.sendError(playerId, error instanceof Error ? error.message : "投票処理に失敗しました");
       return;
     }
 
@@ -807,20 +704,17 @@ export class RoomDurableObject {
       return;
     }
 
-    const playerIndex = room.players.findIndex((player) => player.id === playerId);
+    const playerIndex = (room.game.activePlayerIds || []).indexOf(playerId);
 
     if (playerIndex < 0) {
-      await this.sendError(playerId, "プレイヤーが見つかりません");
+      await this.sendError(playerId, "このゲームでは待機枠です");
       return;
     }
 
     try {
       resolveHunterAction(room.game, playerIndex, action, now());
     } catch (error) {
-      await this.sendError(
-        playerId,
-        error instanceof Error ? error.message : "狩人追加処刑の処理に失敗しました"
-      );
+      await this.sendError(playerId, error instanceof Error ? error.message : "狩人追加処刑の処理に失敗しました");
       return;
     }
 
@@ -829,9 +723,7 @@ export class RoomDurableObject {
   }
 
   async handleBackToLobby(room, isHost) {
-    if (!isHost) {
-      return;
-    }
+    if (!isHost) return;
 
     room.phase = "lobby";
     room.startedAt = null;
@@ -842,25 +734,16 @@ export class RoomDurableObject {
   }
 
   async handleReorderPlayers(room, playerIds, isHost) {
-    if (!isHost || room.phase !== "lobby") {
-      return;
-    }
-
-    if (!Array.isArray(playerIds)) {
-      return;
-    }
+    if (!isHost || room.phase !== "lobby") return;
+    if (!Array.isArray(playerIds)) return;
 
     const currentIds = room.players.map((player) => player.id).sort();
     const nextIds = [...playerIds].sort();
 
-    if (currentIds.length !== nextIds.length) {
-      return;
-    }
+    if (currentIds.length !== nextIds.length) return;
 
     for (let i = 0; i < currentIds.length; i += 1) {
-      if (currentIds[i] !== nextIds[i]) {
-        return;
-      }
+      if (currentIds[i] !== nextIds[i]) return;
     }
 
     room.players = playerIds.map((id) => room.players.find((player) => player.id === id));
@@ -870,20 +753,13 @@ export class RoomDurableObject {
   }
 
   async handleRemovePlayer(room, targetPlayerId, isHost) {
-    if (!isHost || room.phase !== "lobby") {
-      return;
-    }
-
-    if (targetPlayerId === room.hostPlayerId) {
-      return;
-    }
+    if (!isHost || room.phase !== "lobby") return;
+    if (targetPlayerId === room.hostPlayerId) return;
 
     const beforeLength = room.players.length;
     room.players = room.players.filter((player) => player.id !== targetPlayerId);
 
-    if (room.players.length === beforeLength) {
-      return;
-    }
+    if (room.players.length === beforeLength) return;
 
     const targetSession = this.sessions.get(targetPlayerId);
     if (targetSession) {
@@ -901,14 +777,10 @@ export class RoomDurableObject {
   }
 
   async handleUpdateName(room, playerId, message) {
-    if (room.phase !== "lobby") {
-      return;
-    }
+    if (room.phase !== "lobby") return;
 
     const player = room.players.find((item) => item.id === playerId);
-    if (!player) {
-      return;
-    }
+    if (!player) return;
 
     player.name = normalizeUniqueName(room.players, message.name, playerId);
 
@@ -919,21 +791,15 @@ export class RoomDurableObject {
   async closeSession(playerId, sessionId) {
     const currentSession = this.sessions.get(playerId);
 
-    if (!currentSession || currentSession.sessionId !== sessionId) {
-      return;
-    }
+    if (!currentSession || currentSession.sessionId !== sessionId) return;
 
     this.sessions.delete(playerId);
 
     const room = await this.getFreshRoom();
-    if (!room) {
-      return;
-    }
+    if (!room) return;
 
     const player = room.players.find((item) => item.id === playerId);
-    if (!player) {
-      return;
-    }
+    if (!player) return;
 
     player.connected = false;
 
@@ -943,10 +809,7 @@ export class RoomDurableObject {
 
   async sendToPlayer(playerId, payload) {
     const session = this.sessions.get(playerId);
-
-    if (!session) {
-      return;
-    }
+    if (!session) return;
 
     try {
       session.socket.send(JSON.stringify(payload));
@@ -956,18 +819,12 @@ export class RoomDurableObject {
   }
 
   async sendError(playerId, error) {
-    await this.sendToPlayer(playerId, {
-      type: "error",
-      error,
-    });
+    await this.sendToPlayer(playerId, { type: "error", error });
   }
 
   async broadcastSnapshot() {
     const room = await this.getFreshRoom();
-
-    if (!room) {
-      return;
-    }
+    if (!room) return;
 
     const snapshot = this.buildPublicSnapshot(room);
 
@@ -995,9 +852,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (request.method === "OPTIONS") {
-      return optionResponse();
-    }
+    if (request.method === "OPTIONS") return optionResponse();
 
     try {
       if (url.pathname === "/api/health" && request.method === "GET") {
@@ -1021,9 +876,7 @@ export default {
 
           const response = await stub.fetch(new Request("https://room/create", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               roomId: desiredRoomId,
               name: body.name,
@@ -1040,9 +893,7 @@ export default {
 
           const response = await stub.fetch(new Request("https://room/create", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               roomId,
               name: body.name,
@@ -1050,9 +901,7 @@ export default {
             }),
           }));
 
-          if (response.status !== 409) {
-            return withCors(response);
-          }
+          if (response.status !== 409) return withCors(response);
         }
 
         return jsonCors({ ok: false, error: "空いているルームコードがありません" }, 500);
@@ -1062,9 +911,7 @@ export default {
       if (roomJoinMatch && request.method === "POST") {
         const roomId = roomJoinMatch[1];
         const stub = getRoomStub(env, roomId);
-
         const response = await stub.fetch(new Request("https://room/join", request));
-
         return withCors(response);
       }
 

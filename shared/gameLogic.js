@@ -1,24 +1,7 @@
-export const APP_VERSION = "v0.5.0";
+export const APP_VERSION = "v0.6.0";
 
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 10;
-
-export const LIMITED_MANUAL_ROLES = new Set(["狩人", "村長", "パン屋"]);
-
-export const MANUAL_ROLE_ORDER = [
-  "人狼",
-  "大狼",
-  "狂人",
-  "占い師",
-  "怪盗",
-  "吸血鬼",
-  "狩人",
-  "村長",
-  "モブおじさん",
-  "パン屋",
-  "魔女っ子",
-  "村人",
-];
 
 export const ROLE_PATTERNS = {
   2: {
@@ -121,45 +104,19 @@ export function isTwoPlayerPatternB(count, pattern) {
   return Number(count) === 2 && pattern === "B";
 }
 
-export function getAvailablePatterns(playerCount, options = {}) {
-  const { includeManual = false } = options;
-  const count = Number(playerCount);
-  const fixedPatterns = Object.keys(ROLE_PATTERNS[count] || {});
-
-  if (count === 2) {
-    return fixedPatterns;
-  }
-
-  return includeManual ? [...fixedPatterns, "X"] : fixedPatterns;
+export function getAvailablePatterns(playerCount) {
+  return Object.keys(ROLE_PATTERNS[Number(playerCount)] || {});
 }
 
 export function getSelectedFixedRoles(playerCount, pattern) {
-  const count = Number(playerCount);
-
-  if (pattern === "X") {
-    return null;
-  }
-
-  const roles = ROLE_PATTERNS[count]?.[pattern];
-
-  if (!roles) {
-    return [];
-  }
-
-  return [...roles];
+  const roles = ROLE_PATTERNS[Number(playerCount)]?.[pattern];
+  return roles ? [...roles] : [];
 }
 
 export function getPatternSpecialNote(playerCount, pattern) {
   const count = Number(playerCount);
-
-  if (count === 2 && pattern === "A") {
-    return "A、お互いに投票した場合両方処刑されます";
-  }
-
-  if (count === 2 && pattern === "B") {
-    return "B、3人目の村人陣営の死体があります";
-  }
-
+  if (count === 2 && pattern === "A") return "A、お互いに投票した場合両方処刑されます";
+  if (count === 2 && pattern === "B") return "B、3人目の村人陣営の死体があります";
   return "";
 }
 
@@ -167,29 +124,12 @@ export function getRoleDescription(role, playerCount, pattern) {
   const count = Number(playerCount);
 
   if (count === 2) {
-    if (pattern === "B" && role === "人狼") {
-      return "夜行動なしの人狼";
-    }
-
-    if (role === "大狼") {
-      return "墓地をランダム1枚確認できる人狼";
-    }
-
-    if (role === "占い師") {
-      return "夜に墓地をランダム1枚見る";
-    }
-
-    if (role === "吸血鬼") {
-      return "夜に相手または墓地1枚とランダムに交換する";
-    }
-
-    if (role === "狩人") {
-      return "自分が吊られたら相手も吊る";
-    }
-
-    if (role === "村長") {
-      return "投票が2票になる";
-    }
+    if (pattern === "B" && role === "人狼") return "夜行動なしの人狼";
+    if (role === "大狼") return "墓地をランダム1枚確認できる人狼";
+    if (role === "占い師") return "夜に墓地をランダム1枚見る";
+    if (role === "吸血鬼") return "夜に相手または墓地1枚とランダムに交換する";
+    if (role === "狩人") return "自分が吊られたら相手も吊る";
+    if (role === "村長") return "投票が2票になる";
   }
 
   return ROLE_DESCRIPTIONS[role] || "";
@@ -204,7 +144,6 @@ export function buildCountSummary(roles) {
       counts[role] = 0;
       orderedUniqueRoles.push(role);
     }
-
     counts[role] += 1;
   });
 
@@ -222,28 +161,17 @@ export function getDurationLabel(value) {
 
 function clampNumber(value, min, max, fallback) {
   const numberValue = Number(value);
-
-  if (!Number.isFinite(numberValue)) {
-    return fallback;
-  }
-
+  if (!Number.isFinite(numberValue)) return fallback;
   return Math.max(min, Math.min(max, Math.round(numberValue)));
 }
 
 function normalizeDuration(value, key, fallback) {
   const numberValue = Number(value);
   const availableValues = TIME_OPTIONS[key].map((item) => item.value);
-
-  if (availableValues.includes(numberValue)) {
-    return numberValue;
-  }
-
-  return fallback;
+  return availableValues.includes(numberValue) ? numberValue : fallback;
 }
 
-export function normalizeOnlineSettings(input = {}, fallback = DEFAULT_SETTINGS, options = {}) {
-  const { includeManual = false } = options;
-
+export function normalizeOnlineSettings(input = {}, fallback = DEFAULT_SETTINGS) {
   const playerCount = clampNumber(
     input.playerCount ?? fallback.playerCount,
     MIN_PLAYERS,
@@ -251,7 +179,7 @@ export function normalizeOnlineSettings(input = {}, fallback = DEFAULT_SETTINGS,
     fallback.playerCount
   );
 
-  const availablePatterns = getAvailablePatterns(playerCount, { includeManual });
+  const availablePatterns = getAvailablePatterns(playerCount);
   let pattern = String(input.pattern ?? fallback.pattern ?? "A");
 
   if (!availablePatterns.includes(pattern)) {
@@ -261,21 +189,9 @@ export function normalizeOnlineSettings(input = {}, fallback = DEFAULT_SETTINGS,
   return {
     playerCount,
     pattern,
-    nightSeconds: normalizeDuration(
-      input.nightSeconds ?? fallback.nightSeconds,
-      "nightSeconds",
-      fallback.nightSeconds
-    ),
-    discussionSeconds: normalizeDuration(
-      input.discussionSeconds ?? fallback.discussionSeconds,
-      "discussionSeconds",
-      fallback.discussionSeconds
-    ),
-    voteSeconds: normalizeDuration(
-      input.voteSeconds ?? fallback.voteSeconds,
-      "voteSeconds",
-      fallback.voteSeconds
-    ),
+    nightSeconds: normalizeDuration(input.nightSeconds ?? fallback.nightSeconds, "nightSeconds", fallback.nightSeconds),
+    discussionSeconds: normalizeDuration(input.discussionSeconds ?? fallback.discussionSeconds, "discussionSeconds", fallback.discussionSeconds),
+    voteSeconds: normalizeDuration(input.voteSeconds ?? fallback.voteSeconds, "voteSeconds", fallback.voteSeconds),
   };
 }
 
@@ -291,18 +207,14 @@ export function shuffleArray(array, random = Math.random) {
 }
 
 function assignUniqueTargetsWithBacktracking(actorIndexes, count, random = Math.random) {
-  if (actorIndexes.length === 0) {
-    return [];
-  }
+  if (actorIndexes.length === 0) return [];
 
   const assignments = [];
   const usedTargets = new Set();
   const actorOrder = shuffleArray(actorIndexes, random);
 
   function dfs(position) {
-    if (position >= actorOrder.length) {
-      return true;
-    }
+    if (position >= actorOrder.length) return true;
 
     const actorIndex = actorOrder[position];
     const candidates = shuffleArray(
@@ -316,9 +228,7 @@ function assignUniqueTargetsWithBacktracking(actorIndexes, count, random = Math.
       assignments.push({ actorIndex, targetIndex });
       usedTargets.add(targetIndex);
 
-      if (dfs(position + 1)) {
-        return true;
-      }
+      if (dfs(position + 1)) return true;
 
       assignments.pop();
       usedTargets.delete(targetIndex);
@@ -327,13 +237,11 @@ function assignUniqueTargetsWithBacktracking(actorIndexes, count, random = Math.
     return false;
   }
 
-  if (!dfs(0)) {
-    return [];
-  }
+  if (!dfs(0)) return [];
 
-  return actorIndexes.map((actorIndex) => {
-    return assignments.find((item) => item.actorIndex === actorIndex);
-  }).filter(Boolean);
+  return actorIndexes
+    .map((actorIndex) => assignments.find((item) => item.actorIndex === actorIndex))
+    .filter(Boolean);
 }
 
 export function decideMobVisits(initialRoles, count, random = Math.random) {
@@ -347,38 +255,21 @@ export function decideMobVisits(initialRoles, count, random = Math.random) {
 
 export function decideBreadDelivery(initialRoles, count, random = Math.random) {
   const actorIndex = initialRoles.findIndex((role) => role === "パン屋");
+  if (actorIndex === -1) return null;
 
-  if (actorIndex === -1) {
-    return null;
-  }
-
-  const targets = Array.from({ length: count }, (_, index) => index)
-    .filter((index) => index !== actorIndex);
-
+  const targets = Array.from({ length: count }, (_, index) => index).filter((index) => index !== actorIndex);
   const targetIndex = targets[Math.floor(random() * targets.length)];
 
   return { actorIndex, targetIndex };
 }
 
 export function createInitialGameSetup(playerNames, settings, random = Math.random) {
-  const normalizedSettings = normalizeOnlineSettings(settings, DEFAULT_SETTINGS, {
-    includeManual: false,
-  });
-
+  const normalizedSettings = normalizeOnlineSettings(settings, DEFAULT_SETTINGS);
   const { playerCount, pattern } = normalizedSettings;
   const roles = getSelectedFixedRoles(playerCount, pattern);
 
-  if (!roles) {
-    throw new Error("X配役はまだオンライン版の開始処理に未対応です");
-  }
-
-  if (roles.length === 0) {
-    throw new Error("配役が見つかりません");
-  }
-
-  if (playerNames.length !== playerCount) {
-    throw new Error(`${playerCount}人ちょうどで開始できます`);
-  }
+  if (roles.length === 0) throw new Error("配役が見つかりません");
+  if (playerNames.length !== playerCount) throw new Error(`${playerCount}人ちょうどで開始できます`);
 
   let distributedRoles = [...roles];
   let deadPlayer = null;
@@ -387,7 +278,6 @@ export function createInitialGameSetup(playerNames, settings, random = Math.rand
     const deadCandidates = roles.filter((role) => !isWerewolfRole(role));
     const deadRole = deadCandidates[Math.floor(random() * deadCandidates.length)];
     const remaining = [...roles];
-
     remaining.splice(remaining.indexOf(deadRole), 1);
 
     distributedRoles = remaining;
@@ -408,6 +298,7 @@ export function createInitialGameSetup(playerNames, settings, random = Math.rand
     count: playerCount,
     pattern,
     settings: normalizedSettings,
+    activePlayerIds: [],
     allRoles: [...roles],
     initialRoles: [...initialRoles],
     currentRoles: [...initialRoles],
@@ -446,41 +337,25 @@ function formatPlayerName(game, index) {
 }
 
 function formatPlayerList(game, indexes) {
-  if (!indexes || indexes.length === 0) {
-    return "なし";
-  }
-
+  if (!indexes || indexes.length === 0) return "なし";
   return indexes.map((index) => formatPlayerName(game, index)).join("、");
 }
 
 function formatVoteTarget(game, target) {
-  if (target === "peace") {
-    return "平和村を願う";
-  }
-
-  if (typeof target === "number" && game.playerNames[target]) {
-    return formatPlayerName(game, target);
-  }
-
+  if (target === "peace") return "平和村を願う";
+  if (typeof target === "number" && game.playerNames[target]) return formatPlayerName(game, target);
   return "未投票";
 }
 
 function formatRoleHistory(history) {
-  if (!history || history.length === 0) {
-    return "";
-  }
-
+  if (!history || history.length === 0) return "";
   return history.length <= 1 ? history[0] : history.join("→");
 }
 
 function formatGraveCard(game, index) {
   const initialRole = game.initialGraveCards[index];
   const currentRole = game.currentGraveCards[index];
-
-  if (!initialRole) {
-    return "";
-  }
-
+  if (!initialRole) return "";
   return initialRole === currentRole ? initialRole : `${initialRole}→${currentRole}`;
 }
 
@@ -492,14 +367,8 @@ function formatGraveSummary(game) {
 }
 
 function getPlayerTeam(role, hasWerewolfSide) {
-  if (isWerewolfRole(role)) {
-    return "人狼";
-  }
-
-  if (role === "狂人") {
-    return hasWerewolfSide ? "人狼" : "村";
-  }
-
+  if (isWerewolfRole(role)) return "人狼";
+  if (role === "狂人") return hasWerewolfSide ? "人狼" : "村";
   return "村";
 }
 
@@ -511,7 +380,6 @@ function getInitialWerewolfPartners(game, playerIndex) {
 
 function addRoleHistory(game, index, newRole) {
   const history = game.roleHistories[index];
-
   if (history[history.length - 1] !== newRole) {
     history.push(newRole);
   }
@@ -539,8 +407,7 @@ function swapPlayerWithGrave(game, playerIndex, graveIndex) {
 }
 
 function getOtherPlayerIndexes(game, playerIndex) {
-  return Array.from({ length: game.count }, (_, index) => index)
-    .filter((index) => index !== playerIndex);
+  return Array.from({ length: game.count }, (_, index) => index).filter((index) => index !== playerIndex);
 }
 
 function pickRandomPlayerIndex(game, playerIndex, random = Math.random) {
@@ -587,21 +454,13 @@ function buildBasePlayerView(game, playerIndex) {
 
 export function getNightActionView(game, playerIndex) {
   if (!game || game.phase !== "night") {
-    return {
-      phase: game?.phase || "unknown",
-      choices: [],
-      notifications: [],
-      preInfo: "",
-      isNightComplete: true,
-      nightResult: null,
-    };
+    return { phase: game?.phase || "unknown", choices: [], notifications: [], preInfo: "", isNightComplete: true };
   }
 
   const role = game.initialRoles[playerIndex];
   const choices = [];
   const notifications = [];
-  const result = game.nightResults[playerIndex] || null;
-  const completed = Boolean(result);
+  const completed = Boolean(game.nightResults[playerIndex]);
 
   if (game.breadDelivery && game.breadDelivery.targetIndex === playerIndex) {
     notifications.push("パンが届きました");
@@ -612,8 +471,6 @@ export function getNightActionView(game, playerIndex) {
     notifications.push(`${formatPlayerName(game, mobVisit.actorIndex)}が訪問してきました`);
   }
 
-  let preInfo = "";
-
   if (completed) {
     return {
       ...buildBasePlayerView(game, playerIndex),
@@ -623,6 +480,8 @@ export function getNightActionView(game, playerIndex) {
       isNightComplete: true,
     };
   }
+
+  let preInfo = "";
 
   if (role === "人狼") {
     if (isTwoPlayerPatternB(game.count, game.pattern)) {
@@ -747,21 +606,19 @@ export function getHunterActionView(game, playerIndex) {
 }
 
 export function getPlayerGameView(game, playerIndex) {
-  if (!game) {
-    return null;
+  if (!game) return null;
+
+  if (playerIndex < 0 || playerIndex >= game.count) {
+    return {
+      phase: "waiting",
+      message: "このゲームでは待機枠です。次のゲームまで待機してください。",
+      result: game.phase === "result" ? game.result : null,
+    };
   }
 
-  if (game.phase === "night") {
-    return getNightActionView(game, playerIndex);
-  }
-
-  if (game.phase === "vote") {
-    return getVoteActionView(game, playerIndex);
-  }
-
-  if (game.phase === "hunterExecution") {
-    return getHunterActionView(game, playerIndex);
-  }
+  if (game.phase === "night") return getNightActionView(game, playerIndex);
+  if (game.phase === "vote") return getVoteActionView(game, playerIndex);
+  if (game.phase === "hunterExecution") return getHunterActionView(game, playerIndex);
 
   return {
     ...buildBasePlayerView(game, playerIndex),
@@ -775,15 +632,10 @@ export function createAutoNightAction(game, playerIndex, random = Math.random) {
   const role = game.initialRoles[playerIndex];
 
   if (role === "占い師") {
-    if (isTwoPlayerCount(game.count)) {
-      return { kind: "lookGrave" };
-    }
+    if (isTwoPlayerCount(game.count)) return { kind: "lookGrave" };
 
     const choices = [
-      ...getOtherPlayerIndexes(game, playerIndex).map((targetIndex) => ({
-        kind: "lookPlayer",
-        targetIndex,
-      })),
+      ...getOtherPlayerIndexes(game, playerIndex).map((targetIndex) => ({ kind: "lookPlayer", targetIndex })),
       { kind: "lookGrave" },
     ];
 
@@ -791,54 +643,30 @@ export function createAutoNightAction(game, playerIndex, random = Math.random) {
   }
 
   if (role === "怪盗") {
-    return {
-      kind: "swapPlayer",
-      targetIndex: pickRandomPlayerIndex(game, playerIndex, random),
-    };
+    return { kind: "swapPlayer", targetIndex: pickRandomPlayerIndex(game, playerIndex, random) };
   }
 
   if (role === "吸血鬼") {
-    if (isTwoPlayerCount(game.count)) {
-      return { kind: "randomExchange" };
-    }
+    if (isTwoPlayerCount(game.count)) return { kind: "randomExchange" };
 
     const choices = [
-      ...getOtherPlayerIndexes(game, playerIndex).map((targetIndex) => ({
-        kind: "swapPlayer",
-        targetIndex,
-      })),
+      ...getOtherPlayerIndexes(game, playerIndex).map((targetIndex) => ({ kind: "swapPlayer", targetIndex })),
       { kind: "swapGrave" },
     ];
 
     return choices[Math.floor(random() * choices.length)];
   }
 
-  if (role === "魔女っ子") {
-    return {
-      kind: "lookPlayer",
-      targetIndex: pickRandomPlayerIndex(game, playerIndex, random),
-    };
-  }
-
-  if (role === "大狼") {
-    return { kind: "lookGrave" };
-  }
-
-  if (role === "モブおじさん") {
-    return { kind: "visit" };
-  }
+  if (role === "魔女っ子") return { kind: "lookPlayer", targetIndex: pickRandomPlayerIndex(game, playerIndex, random) };
+  if (role === "大狼") return { kind: "lookGrave" };
+  if (role === "モブおじさん") return { kind: "visit" };
 
   return { kind: "none" };
 }
 
 export function resolveNightAction(game, playerIndex, actionInput = {}, random = Math.random) {
-  if (!game || game.phase !== "night") {
-    throw new Error("夜フェーズではありません");
-  }
-
-  if (game.nightResults[playerIndex]) {
-    return game.nightResults[playerIndex];
-  }
+  if (!game || game.phase !== "night") throw new Error("夜フェーズではありません");
+  if (game.nightResults[playerIndex]) return game.nightResults[playerIndex];
 
   const role = game.initialRoles[playerIndex];
   const action = actionInput && typeof actionInput === "object" ? actionInput : {};
@@ -917,9 +745,7 @@ export function resolveNightAction(game, playerIndex, actionInput = {}, random =
     }
   } else if (role === "モブおじさん") {
     const visit = getMobVisitForActor(game, playerIndex);
-    text = visit
-      ? `${formatPlayerName(game, visit.targetIndex)}を訪問し熱い夜を過ごしました`
-      : "訪問相手がいません";
+    text = visit ? `${formatPlayerName(game, visit.targetIndex)}を訪問し熱い夜を過ごしました` : "訪問相手がいません";
   } else if (role === "パン屋") {
     text = "誰かにパンを届けました";
   } else if (role === "魔女っ子") {
@@ -927,18 +753,12 @@ export function resolveNightAction(game, playerIndex, actionInput = {}, random =
     const safeTargetIndex = targetIndex !== playerIndex && game.initialRoles[targetIndex] !== undefined
       ? targetIndex
       : pickRandomPlayerIndex(game, playerIndex, random);
-
     text = `${formatPlayerName(game, safeTargetIndex)}の役職は ${game.initialRoles[safeTargetIndex]} です`;
   } else {
     text = `${role}は夜の行動がありません`;
   }
 
-  const result = {
-    text,
-    action,
-    completedAt: Date.now(),
-  };
-
+  const result = { text, action, completedAt: Date.now() };
   game.nightActions[playerIndex] = action;
   game.nightResults[playerIndex] = result;
 
@@ -952,23 +772,17 @@ export function isNightComplete(game) {
 export function moveGameToDiscussion(game, nowValue = Date.now()) {
   game.phase = "discussion";
   game.discussionStartedAt = nowValue;
-
-  if (game.settings.discussionSeconds > 0) {
-    game.discussionDeadlineAt = nowValue + game.settings.discussionSeconds * 1000;
-  } else {
-    game.discussionDeadlineAt = null;
-  }
+  game.discussionDeadlineAt = game.settings.discussionSeconds > 0
+    ? nowValue + game.settings.discussionSeconds * 1000
+    : null;
 }
 
 export function moveGameToVote(game, nowValue = Date.now()) {
   game.phase = "vote";
   game.voteStartedAt = nowValue;
-
-  if (game.settings.voteSeconds > 0) {
-    game.voteDeadlineAt = nowValue + game.settings.voteSeconds * 1000;
-  } else {
-    game.voteDeadlineAt = null;
-  }
+  game.voteDeadlineAt = game.settings.voteSeconds > 0
+    ? nowValue + game.settings.voteSeconds * 1000
+    : null;
 }
 
 export function createAutoVoteAction() {
@@ -976,20 +790,14 @@ export function createAutoVoteAction() {
 }
 
 export function resolveVoteAction(game, playerIndex, actionInput = {}) {
-  if (!game || game.phase !== "vote") {
-    throw new Error("投票フェーズではありません");
-  }
-
-  if (game.votes[playerIndex] !== null) {
-    return game.voteResults[playerIndex];
-  }
+  if (!game || game.phase !== "vote") throw new Error("投票フェーズではありません");
+  if (game.votes[playerIndex] !== null) return game.voteResults[playerIndex];
 
   const action = actionInput && typeof actionInput === "object" ? actionInput : {};
   let target = "peace";
 
   if (action.kind === "vote") {
     const targetIndex = Number(action.targetIndex);
-
     if (
       Number.isInteger(targetIndex)
       && targetIndex >= 0
@@ -1025,7 +833,6 @@ export function computeVoteTotals(votes, currentRoles) {
 
   votes.forEach((target, voterIndex) => {
     const weight = currentRoles[voterIndex] === "村長" ? 2 : 1;
-
     if (target !== "peace" && target !== null && target !== undefined) {
       voteTotals[target] += weight;
     }
@@ -1039,25 +846,15 @@ export function computeIsPeaceVillage(votes, currentRoles, playerCount, pattern)
   const allPeace = votes.every((target) => target === "peace");
   const everyoneOneVote = voteTotals.every((total) => total === 1);
 
-  if (isTwoPlayerPatternB(playerCount, pattern)) {
-    return allPeace || everyoneOneVote;
-  }
-
-  if (isTwoPlayerCount(playerCount)) {
-    return allPeace;
-  }
+  if (isTwoPlayerPatternB(playerCount, pattern)) return allPeace || everyoneOneVote;
+  if (isTwoPlayerCount(playerCount)) return allPeace;
 
   return allPeace || everyoneOneVote;
 }
 
 function decideEliminatedPlayers(game) {
   const voteTotals = computeVoteTotals(game.votes, game.currentRoles);
-  const isPeaceVillage = computeIsPeaceVillage(
-    game.votes,
-    game.currentRoles,
-    game.count,
-    game.pattern
-  );
+  const isPeaceVillage = computeIsPeaceVillage(game.votes, game.currentRoles, game.count, game.pattern);
 
   game.voteTotals = voteTotals;
   game.isPeaceVillage = isPeaceVillage;
@@ -1077,19 +874,20 @@ function decideEliminatedPlayers(game) {
 
 function buildGameResult(game, nowValue = Date.now()) {
   const hasWerewolfSide = game.currentRoles.some((role) => isWerewolfRole(role));
-  const hasExecutedWerewolf = game.eliminatedPlayers.some((index) => {
-    return isWerewolfRole(game.currentRoles[index]);
-  });
+  const hasExecutedWerewolf = game.eliminatedPlayers.some((index) => isWerewolfRole(game.currentRoles[index]));
 
   let headline = "";
   let winnerIndexes = [];
+  let resultType = "";
 
   if (!hasWerewolfSide) {
     if (game.eliminatedPlayers.length === 0) {
       headline = "平和村で全員勝利";
+      resultType = "village";
       winnerIndexes = game.playerNames.map((_, index) => index);
     } else {
       headline = "平和崩れで全員負け";
+      resultType = "werewolf";
       winnerIndexes = [];
     }
   } else if (hasExecutedWerewolf) {
@@ -1098,25 +896,25 @@ function buildGameResult(game, nowValue = Date.now()) {
       .filter((item) => getPlayerTeam(item.role, hasWerewolfSide) === "村")
       .map((item) => item.index);
     headline = "村陣営勝利";
+    resultType = "village";
   } else {
     winnerIndexes = game.currentRoles
       .map((role, index) => ({ role, index }))
       .filter((item) => getPlayerTeam(item.role, hasWerewolfSide) === "人狼")
       .map((item) => item.index);
     headline = "人狼陣営勝利";
+    resultType = "werewolf";
   }
 
-  const playerRows = game.playerNames.map((name, index) => {
-    return {
-      name,
-      roleHistory: formatRoleHistory(game.roleHistories[index]),
-      initialRole: game.initialRoles[index],
-      finalRole: game.currentRoles[index],
-      voteTarget: formatVoteTarget(game, game.votes[index]),
-      isEliminated: game.eliminatedPlayers.includes(index),
-      isWinner: winnerIndexes.includes(index),
-    };
-  });
+  const playerRows = game.playerNames.map((name, index) => ({
+    name,
+    roleHistory: formatRoleHistory(game.roleHistories[index]),
+    initialRole: game.initialRoles[index],
+    finalRole: game.currentRoles[index],
+    voteTarget: formatVoteTarget(game, game.votes[index]),
+    isEliminated: game.eliminatedPlayers.includes(index),
+    isWinner: winnerIndexes.includes(index),
+  }));
 
   if (game.deadPlayer) {
     playerRows.push({
@@ -1135,9 +933,7 @@ function buildGameResult(game, nowValue = Date.now()) {
     `墓地: ${formatGraveSummary(game)}`,
   ];
 
-  if (game.deadPlayer) {
-    metaLines.push(`死体の役職: ${game.deadPlayer.role}`);
-  }
+  if (game.deadPlayer) metaLines.push(`死体の役職: ${game.deadPlayer.role}`);
 
   game.mobVisits.forEach((visit) => {
     metaLines.push(`${formatPlayerName(game, visit.actorIndex)}が${formatPlayerName(game, visit.targetIndex)}を訪問`);
@@ -1147,12 +943,11 @@ function buildGameResult(game, nowValue = Date.now()) {
     metaLines.push(`${formatPlayerName(game, game.breadDelivery.actorIndex)}が${formatPlayerName(game, game.breadDelivery.targetIndex)}にパンを配達`);
   }
 
-  if (game.hunterResult) {
-    metaLines.push(game.hunterResult.text);
-  }
+  if (game.hunterResult) metaLines.push(game.hunterResult.text);
 
   return {
     headline,
+    resultType,
     winnerIndexes,
     winnerNames: winnerIndexes.map((index) => formatPlayerName(game, index)),
     eliminatedPlayers: [...game.eliminatedPlayers],
@@ -1174,15 +969,11 @@ export function finalizeGame(game, nowValue = Date.now()) {
 }
 
 export function completeVotesAndAdvance(game, nowValue = Date.now()) {
-  if (!game || game.phase !== "vote") {
-    throw new Error("投票フェーズではありません");
-  }
+  if (!game || game.phase !== "vote") throw new Error("投票フェーズではありません");
 
   decideEliminatedPlayers(game);
 
-  const hunterIndex = game.eliminatedPlayers.find((index) => {
-    return game.currentRoles[index] === "狩人";
-  });
+  const hunterIndex = game.eliminatedPlayers.find((index) => game.currentRoles[index] === "狩人");
 
   if (hunterIndex !== undefined) {
     if (isTwoPlayerCount(game.count)) {
@@ -1198,14 +989,6 @@ export function completeVotesAndAdvance(game, nowValue = Date.now()) {
         game.hunterResult = {
           targetIndex,
           text: `${formatPlayerName(game, hunterIndex)}は狩人でした。狩人の効果で${formatPlayerName(game, targetIndex)}も追加で吊られました`,
-          completedAt: nowValue,
-          auto: true,
-        };
-      } else {
-        game.hunterIndex = hunterIndex;
-        game.hunterResult = {
-          targetIndex: null,
-          text: `${formatPlayerName(game, hunterIndex)}は狩人でした`,
           completedAt: nowValue,
           auto: true,
         };
@@ -1227,24 +1010,16 @@ export function completeVotesAndAdvance(game, nowValue = Date.now()) {
 }
 
 export function resolveHunterAction(game, playerIndex, actionInput = {}, nowValue = Date.now()) {
-  if (!game || game.phase !== "hunterExecution") {
-    throw new Error("狩人追加処刑フェーズではありません");
-  }
+  if (!game || game.phase !== "hunterExecution") throw new Error("狩人追加処刑フェーズではありません");
+  if (playerIndex !== game.hunterIndex) throw new Error("狩人のみ追加処刑できます");
 
-  if (playerIndex !== game.hunterIndex) {
-    throw new Error("狩人のみ追加処刑できます");
-  }
-
-  if (game.hunterResult) {
-    return game.hunterResult;
-  }
+  if (game.hunterResult) return game.hunterResult;
 
   const action = actionInput && typeof actionInput === "object" ? actionInput : {};
   let targetIndex = null;
 
   if (action.kind === "execute") {
     const requestedTargetIndex = Number(action.targetIndex);
-
     if (
       Number.isInteger(requestedTargetIndex)
       && requestedTargetIndex >= 0
@@ -1280,13 +1055,8 @@ export function resolveHunterAction(game, playerIndex, actionInput = {}, nowValu
 }
 
 export function resolveHunterTimeout(game, nowValue = Date.now()) {
-  if (!game || game.phase !== "hunterExecution") {
-    return;
-  }
-
-  if (game.hunterResult) {
-    return;
-  }
+  if (!game || game.phase !== "hunterExecution") return;
+  if (game.hunterResult) return;
 
   game.hunterExtraTarget = null;
   game.hunterResult = {

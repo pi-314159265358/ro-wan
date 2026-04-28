@@ -7,6 +7,8 @@
   --primary: #1f6feb;
   --primary-dark: #1558bd;
   --danger: #c62828;
+  --blue: #1565c0;
+  --red: #c62828;
   --warning: #fff4cc;
   --warning-line: #e0b300;
   --shadow: rgba(0, 0, 0, 0.08);
@@ -25,7 +27,7 @@ body {
 }
 
 .app {
-  width: min(100%, 860px);
+  width: min(100%, 900px);
   margin: 0 auto;
 }
 
@@ -45,8 +47,8 @@ h2 {
 }
 
 h3 {
-  margin: 0 0 12px;
-  font-size: 18px;
+  margin: 0 0 10px;
+  font-size: 17px;
 }
 
 .sub,
@@ -78,7 +80,6 @@ h3 {
 
 .row,
 .actions,
-.join-area,
 .host-controls {
   display: flex;
   flex-wrap: wrap;
@@ -140,6 +141,12 @@ button.danger {
   background: var(--danger);
 }
 
+.small-button {
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 14px;
+}
+
 .status {
   margin-top: 10px;
   white-space: pre-line;
@@ -174,6 +181,7 @@ button.danger {
   border-radius: 10px;
   font-weight: 700;
   margin-bottom: 12px;
+  white-space: pre-line;
 }
 
 .invite-panel {
@@ -204,6 +212,14 @@ button.danger {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
+}
+
+.name-change-panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fafafa;
+  margin-bottom: 12px;
 }
 
 .settings-panel {
@@ -282,6 +298,15 @@ th {
   font-weight: 700;
 }
 
+.entry-slot {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.wait-slot {
+  color: var(--muted);
+}
+
 #gameStatusText {
   white-space: pre-line;
 }
@@ -293,13 +318,56 @@ th {
   margin-top: 14px;
 }
 
-.result-table-wrap {
+.result-cards-wrap {
   margin-top: 16px;
-  overflow-x: auto;
+  display: grid;
+  gap: 12px;
 }
 
-.result-table-wrap table {
-  min-width: 620px;
+.result-headline {
+  font-size: 24px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.result-blue {
+  color: var(--blue);
+}
+
+.result-red {
+  color: var(--red);
+}
+
+.result-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: #ffffff;
+  box-shadow: 0 1px 5px var(--shadow);
+}
+
+.result-card.self {
+  border-width: 2px;
+  border-color: var(--primary);
+}
+
+.result-card-title {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.result-card-line {
+  line-height: 1.7;
+  white-space: pre-line;
+}
+
+.result-meta {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: #fafafa;
+  white-space: pre-line;
 }
 
 .local-stats-panel {
@@ -309,6 +377,19 @@ th {
   border-radius: 10px;
   background: #fafafa;
   white-space: pre-line;
+}
+
+.stats-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.stats-actions button {
+  min-height: 36px;
+  font-size: 14px;
+  padding: 6px 10px;
 }
 
 .footer {
@@ -390,17 +471,15 @@ th {
   }
 
   .host-controls,
-  .game-action-buttons {
+  .game-action-buttons,
+  .stats-actions {
     flex-direction: column;
     align-items: stretch;
   }
 
-  button {
-    width: auto;
-  }
-
   .host-controls button,
-  .game-action-buttons button {
+  .game-action-buttons button,
+  .stats-actions button {
     width: 100%;
   }
 }

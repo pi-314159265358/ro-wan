@@ -4,13 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ワンナイト人狼オンライン</title>
-  <link rel="stylesheet" href="./style.css?v=0.5.0" />
+  <link rel="stylesheet" href="./style.css?v=0.6.0" />
 </head>
 <body>
   <div id="connectionOverlay" class="connection-overlay hidden">
     <div class="connection-overlay-card">
       <h2>通信が切断されました</h2>
-      <p>再接続してください。</p>
+      <p>再接続中です。復帰しない場合は再接続ボタンを押してください。</p>
       <button id="overlayReconnectBtn" type="button">再接続</button>
     </div>
   </div>
@@ -18,7 +18,8 @@
   <main class="app">
     <header class="header">
       <h1>ワンナイト人狼オンライン</h1>
-      <p class="sub">v0.5.0</p>
+      <p class="sub">v0.6.0</p>
+      <button id="soundToggleBtn" type="button" class="small-button secondary">効果音・バイブ OFF</button>
     </header>
 
     <section class="box compact-box">
@@ -68,9 +69,7 @@
     <section id="roomPanel" class="box hidden">
       <h2>ロビー</h2>
 
-      <div id="hostDisconnectWarning" class="warning hidden">
-        切断中の参加者がいます。再接続待ちです。
-      </div>
+      <div id="hostDisconnectWarning" class="warning hidden"></div>
 
       <div class="room-code-wrap">
         <span>ルームコード</span>
@@ -84,6 +83,14 @@
           <button id="copyInviteUrlBtn" type="button">招待URLコピー</button>
         </div>
         <img id="qrImage" class="qr-image" alt="招待QRコード" />
+      </div>
+
+      <div id="lobbyNamePanel" class="name-change-panel">
+        <h3>名前変更</h3>
+        <div class="row one-line">
+          <input id="lobbyNameInput" type="text" maxlength="12" placeholder="新しい名前" />
+          <button id="changeNameBtn" type="button">変更</button>
+        </div>
       </div>
 
       <p id="phaseText" class="phase">待機中</p>
@@ -133,6 +140,7 @@
             <tr>
               <th>順番</th>
               <th>名前</th>
+              <th>枠</th>
               <th>状態</th>
               <th>操作</th>
             </tr>
@@ -151,15 +159,15 @@
       <h2>ゲーム画面</h2>
       <p id="gameStatusText">ゲーム開始状態の同期確認中です。</p>
       <div id="nightActionButtons" class="game-action-buttons"></div>
-      <div id="resultTableWrap" class="result-table-wrap"></div>
+      <div id="resultCardsWrap" class="result-cards-wrap"></div>
       <div id="localStatsPanel" class="local-stats-panel"></div>
     </section>
 
     <footer class="footer">
-      <span id="versionText">v0.5.0</span>
+      <span id="versionText">v0.6.0</span>
     </footer>
   </main>
 
-  <script type="module" src="./app.js?v=0.5.0"></script>
+  <script type="module" src="./app.js?v=0.6.0"></script>
 </body>
 </html>

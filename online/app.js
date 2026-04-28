@@ -11,16 +11,16 @@ import {
   getRoleDescription,
   getSelectedFixedRoles,
   normalizeOnlineSettings,
-} from "../shared/gameLogic.js?v=0.5.0";
+} from "../shared/gameLogic.js?v=0.6.0";
 
 const WORKER_URL = "https://one-night-jinro-online.jnpl3-1415926.workers.dev";
 const SESSION_STORAGE_KEY = "one_night_jinro_online_session_v1";
-const LOCAL_STATS_KEY = "one_night_jinro_local_stats_v1";
-const PROCESSED_RESULTS_KEY = "one_night_jinro_processed_results_v1";
+const LOCAL_STATS_KEY = "one_night_jinro_local_stats_v2";
+const PROCESSED_RESULTS_KEY = "one_night_jinro_processed_results_v2";
+const SOUND_SETTING_KEY = "one_night_jinro_sound_enabled_v1";
 
 const refs = {
   playerNameInput: document.getElementById("playerNameInput"),
-
   createRoomCodeInput: document.getElementById("createRoomCodeInput"),
   createRoomBtn: document.getElementById("createRoomBtn"),
   roomCodeInput: document.getElementById("roomCodeInput"),
@@ -28,9 +28,9 @@ const refs = {
   reconnectArea: document.getElementById("reconnectArea"),
   reconnectBtn: document.getElementById("reconnectBtn"),
   connectionStatus: document.getElementById("connectionStatus"),
-
   connectionOverlay: document.getElementById("connectionOverlay"),
   overlayReconnectBtn: document.getElementById("overlayReconnectBtn"),
+  soundToggleBtn: document.getElementById("soundToggleBtn"),
 
   roomPanel: document.getElementById("roomPanel"),
   roomCodeText: document.getElementById("roomCodeText"),
@@ -38,6 +38,8 @@ const refs = {
   inviteUrlInput: document.getElementById("inviteUrlInput"),
   copyInviteUrlBtn: document.getElementById("copyInviteUrlBtn"),
   qrImage: document.getElementById("qrImage"),
+  lobbyNameInput: document.getElementById("lobbyNameInput"),
+  changeNameBtn: document.getElementById("changeNameBtn"),
   phaseText: document.getElementById("phaseText"),
   hostDisconnectWarning: document.getElementById("hostDisconnectWarning"),
 
@@ -59,7 +61,7 @@ const refs = {
   gamePanel: document.getElementById("gamePanel"),
   gameStatusText: document.getElementById("gameStatusText"),
   nightActionButtons: document.getElementById("nightActionButtons"),
-  resultTableWrap: document.getElementById("resultTableWrap"),
+  resultCardsWrap: document.getElementById("resultCardsWrap"),
   localStatsPanel: document.getElementById("localStatsPanel"),
   versionText: document.getElementById("versionText"),
 };
@@ -67,11 +69,16 @@ const refs = {
 const state = {
   socket: null,
   socketConnected: false,
+  connecting: false,
   pendingAction: false,
   snapshot: null,
   privateGame: null,
   self: null,
   session: null,
+  lastPhaseKey: "",
+  statsMode: "room",
+  statsSortByRate: false,
+  soundEnabled: localStorage.getItem(SOUND_SETTING_KEY) === "true",
 };
 
 function loadSession() {
@@ -137,8 +144,7 @@ function getWorkerUrl() {
 }
 
 async function apiFetch(path, options = {}) {
-  const baseUrl = getWorkerUrl();
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(`${getWorkerUrl()}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -149,18 +155,15 @@ async function apiFetch(path, options = {}) {
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message = payload?.error || `通信エラー: ${response.status}`;
-    throw new Error(message);
+    throw new Error(payload?.error || `通信エラー: ${response.status}`);
   }
 
   return payload;
 }
 
 function buildWebSocketUrl(roomId, playerId, token) {
-  const baseUrl = getWorkerUrl();
-  const wsBase = baseUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
+  const wsBase = getWorkerUrl().replace(/^http:/, "ws:").replace(/^https:/, "wss:");
   const query = new URLSearchParams({ playerId, token });
-
   return `${wsBase}/api/rooms/${encodeURIComponent(roomId)}/socket?${query.toString()}`;
 }
 
@@ -175,16 +178,21 @@ function setOverlayVisible(visible) {
   refs.connectionOverlay.classList.toggle("hidden", !visible);
 }
 
-function connectSocket(session) {
+function connectSocket(session, silent = false) {
+  if (!session || state.connecting) return;
+
   closeSocket();
 
-  const socketUrl = buildWebSocketUrl(session.roomId, session.playerId, session.token);
-  const socket = new WebSocket(socketUrl);
-  state.socket = socket;
+  state.connecting = true;
   state.socketConnected = false;
-  setStatus("接続中です");
+
+  if (!silent) setStatus("接続中です");
+
+  const socket = new WebSocket(buildWebSocketUrl(session.roomId, session.playerId, session.token));
+  state.socket = socket;
 
   socket.addEventListener("open", () => {
+    state.connecting = false;
     state.socketConnected = true;
     setOverlayVisible(false);
     setStatus("接続しました");
@@ -199,7 +207,9 @@ function connectSocket(session) {
       state.privateGame = message.privateGame || null;
       state.self = message.self;
       state.socketConnected = true;
+      state.connecting = false;
       setOverlayVisible(false);
+      notifyPhaseChange();
       render();
     }
 
@@ -215,14 +225,16 @@ function connectSocket(session) {
   });
 
   socket.addEventListener("close", () => {
+    state.connecting = false;
     state.socketConnected = false;
-    setStatus("切断されました。再接続してください。");
+    setStatus("切断されました。自動再接続中です。");
     setOverlayVisible(true);
     renderReconnectArea();
     render();
   });
 
   socket.addEventListener("error", () => {
+    state.connecting = false;
     state.socketConnected = false;
     setStatus("接続エラーが発生しました");
     setOverlayVisible(true);
@@ -349,23 +361,16 @@ function renderReconnectArea() {
 }
 
 function getPhaseLabel(snapshot) {
-  if (!snapshot) {
-    return "不明";
-  }
-
-  if (snapshot.phase === "lobby") {
-    return "ロビー";
-  }
+  if (!snapshot) return "不明";
+  if (snapshot.phase === "lobby") return "ロビー";
 
   if (snapshot.phase === "started") {
     const gamePhase = snapshot.gamePublic?.phase;
-
     if (gamePhase === "night") return "夜フェーズ";
     if (gamePhase === "discussion") return "議論フェーズ";
     if (gamePhase === "vote") return "投票フェーズ";
     if (gamePhase === "hunterExecution") return "狩人追加処刑";
     if (gamePhase === "result") return "結果";
-
     return "ゲーム開始";
   }
 
@@ -374,6 +379,10 @@ function getPhaseLabel(snapshot) {
 
 function isHost() {
   return Boolean(state.self?.isHost);
+}
+
+function getSelfPlayer() {
+  return state.snapshot?.players?.find((player) => player.id === state.self?.playerId) || null;
 }
 
 function populatePlayerCountOptions() {
@@ -399,8 +408,7 @@ function populateTimeOptions(selectElement, key) {
 }
 
 function renderPatternOptions(playerCount, selectedPattern) {
-  const patterns = getAvailablePatterns(playerCount, { includeManual: false });
-
+  const patterns = getAvailablePatterns(playerCount);
   refs.settingPattern.innerHTML = "";
 
   patterns.forEach((pattern) => {
@@ -410,11 +418,7 @@ function renderPatternOptions(playerCount, selectedPattern) {
     refs.settingPattern.appendChild(option);
   });
 
-  if (patterns.includes(selectedPattern)) {
-    refs.settingPattern.value = selectedPattern;
-  } else {
-    refs.settingPattern.value = patterns[0] || "A";
-  }
+  refs.settingPattern.value = patterns.includes(selectedPattern) ? selectedPattern : patterns[0] || "A";
 }
 
 function collectSettingsFromForm() {
@@ -424,9 +428,7 @@ function collectSettingsFromForm() {
     nightSeconds: Number(refs.settingNightSeconds.value),
     discussionSeconds: Number(refs.settingDiscussionSeconds.value),
     voteSeconds: Number(refs.settingVoteSeconds.value),
-  }, DEFAULT_SETTINGS, {
-    includeManual: false,
-  });
+  }, DEFAULT_SETTINGS);
 }
 
 function buildSettingsText(settings) {
@@ -439,9 +441,7 @@ function buildSettingsText(settings) {
   ];
 
   const note = getPatternSpecialNote(settings.playerCount, settings.pattern);
-  if (note) {
-    lines.push(note);
-  }
+  if (note) lines.push(note);
 
   const roles = getSelectedFixedRoles(settings.playerCount, settings.pattern);
 
@@ -462,16 +462,13 @@ function buildSettingsText(settings) {
 function applySettingsToForm(settings) {
   refs.settingPlayerCount.value = String(settings.playerCount);
   renderPatternOptions(settings.playerCount, settings.pattern);
-
   refs.settingNightSeconds.value = String(settings.nightSeconds);
   refs.settingDiscussionSeconds.value = String(settings.discussionSeconds);
   refs.settingVoteSeconds.value = String(settings.voteSeconds);
 }
 
 function renderSettings() {
-  const settings = normalizeOnlineSettings(state.snapshot?.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
-    includeManual: false,
-  });
+  const settings = normalizeOnlineSettings(state.snapshot?.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS);
   const editable = isHost() && state.snapshot?.phase === "lobby";
 
   applySettingsToForm(settings);
@@ -487,37 +484,32 @@ function renderSettings() {
 }
 
 function saveSettings() {
-  if (!isHost()) {
-    return;
-  }
-
+  if (!isHost()) return;
   setSettingStatus("");
-  const settings = collectSettingsFromForm();
-  sendSocket("updateSettings", { settings });
+  sendSocket("updateSettings", { settings: collectSettingsFromForm() });
+}
+
+function changeName() {
+  const name = refs.lobbyNameInput.value.trim();
+  if (!name) return;
+  sendSocket("updateName", { name });
 }
 
 function movePlayer(playerId, direction) {
-  if (!state.snapshot || !isHost()) {
-    return;
-  }
+  if (!state.snapshot || !isHost()) return;
 
   const ids = state.snapshot.players.map((player) => player.id);
   const currentIndex = ids.indexOf(playerId);
   const nextIndex = currentIndex + direction;
 
-  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= ids.length) {
-    return;
-  }
+  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= ids.length) return;
 
   [ids[currentIndex], ids[nextIndex]] = [ids[nextIndex], ids[currentIndex]];
   sendSocket("reorderPlayers", { playerIds: ids });
 }
 
 function removePlayer(playerId) {
-  if (!isHost()) {
-    return;
-  }
-
+  if (!isHost()) return;
   sendSocket("removePlayer", { playerId });
 }
 
@@ -540,10 +532,9 @@ function renderInvitePanel() {
 
 function renderPlayerTable() {
   refs.playerTableBody.innerHTML = "";
+  if (!state.snapshot) return;
 
-  if (!state.snapshot) {
-    return;
-  }
+  const settings = normalizeOnlineSettings(state.snapshot.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS);
 
   state.snapshot.players.forEach((player, index) => {
     const tr = document.createElement("tr");
@@ -553,6 +544,11 @@ function renderPlayerTable() {
 
     const nameTd = document.createElement("td");
     nameTd.textContent = `${player.name}${player.isHost ? "（ホスト）" : ""}`;
+
+    const slotTd = document.createElement("td");
+    const isEntry = index < settings.playerCount;
+    slotTd.textContent = isEntry ? "参加" : "待機";
+    slotTd.className = isEntry ? "entry-slot" : "wait-slot";
 
     const statusTd = document.createElement("td");
     statusTd.textContent = player.connected ? "接続中" : "切断中";
@@ -592,6 +588,7 @@ function renderPlayerTable() {
 
     tr.appendChild(orderTd);
     tr.appendChild(nameTd);
+    tr.appendChild(slotTd);
     tr.appendChild(statusTd);
     tr.appendChild(actionTd);
 
@@ -603,8 +600,8 @@ function clearGameButtons() {
   refs.nightActionButtons.innerHTML = "";
 }
 
-function clearResultTable() {
-  refs.resultTableWrap.innerHTML = "";
+function clearResultCards() {
+  refs.resultCardsWrap.innerHTML = "";
 }
 
 function addGameButton(label, onClick) {
@@ -614,6 +611,22 @@ function addGameButton(label, onClick) {
   button.disabled = state.pendingAction;
   button.addEventListener("click", onClick);
   refs.nightActionButtons.appendChild(button);
+}
+
+function formatRemaining(deadlineAt) {
+  if (!deadlineAt) return "無限";
+
+  const ms = Math.max(0, Number(deadlineAt) - Date.now());
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes > 0) return `${minutes}分${String(seconds).padStart(2, "0")}秒`;
+  return `${seconds}秒`;
+}
+
+function getCountdownLine(label, deadlineAt) {
+  return `${label} 残り: ${formatRemaining(deadlineAt)}`;
 }
 
 function sendNightAction(action) {
@@ -630,29 +643,19 @@ function sendHunterAction(action) {
 
 function renderNightButtons(privateGame) {
   clearGameButtons();
-
-  if (!privateGame || privateGame.phase !== "night" || privateGame.isNightComplete || state.pendingAction) {
-    return;
-  }
+  if (!privateGame || privateGame.phase !== "night" || privateGame.isNightComplete || state.pendingAction) return;
 
   privateGame.choices.forEach((choice) => {
-    addGameButton(choice.label, () => {
-      sendNightAction(choice.action);
-    });
+    addGameButton(choice.label, () => sendNightAction(choice.action));
   });
 }
 
 function renderVoteButtons(privateGame) {
   clearGameButtons();
-
-  if (!privateGame || privateGame.phase !== "vote" || privateGame.isVoteComplete || state.pendingAction) {
-    return;
-  }
+  if (!privateGame || privateGame.phase !== "vote" || privateGame.isVoteComplete || state.pendingAction) return;
 
   privateGame.choices.forEach((choice) => {
-    addGameButton(choice.label, () => {
-      sendVoteAction(choice.action);
-    });
+    addGameButton(choice.label, () => sendVoteAction(choice.action));
   });
 }
 
@@ -670,110 +673,150 @@ function renderHunterButtons(privateGame) {
   }
 
   privateGame.choices.forEach((choice) => {
-    addGameButton(choice.label, () => {
-      sendHunterAction(choice.action);
-    });
+    addGameButton(choice.label, () => sendHunterAction(choice.action));
   });
 }
 
 function renderDiscussionButtons() {
   clearGameButtons();
-
-  if (!isHost() || state.pendingAction) {
-    return;
-  }
+  if (!isHost() || state.pendingAction) return;
 
   addGameButton("投票フェーズへ進む", () => {
     sendSocket("startVotePhase");
   });
 }
 
-function formatRemaining(deadlineAt) {
-  if (!deadlineAt) {
-    return "無限";
-  }
+function renderResultButtons() {
+  clearGameButtons();
+  if (!isHost() || state.pendingAction) return;
 
-  const ms = Math.max(0, Number(deadlineAt) - Date.now());
-  const totalSeconds = Math.ceil(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  if (minutes > 0) {
-    return `${minutes}分${String(seconds).padStart(2, "0")}秒`;
-  }
-
-  return `${seconds}秒`;
-}
-
-function getCountdownLine(label, deadlineAt) {
-  return `${label} 残り: ${formatRemaining(deadlineAt)}`;
+  addGameButton("同じ設定で再戦", () => {
+    sendSocket("replaySameSettings");
+  });
 }
 
 function updateLocalStatsFromResult(privateGame) {
-  if (!state.snapshot || !privateGame?.result || typeof privateGame.playerIndex !== "number") {
-    return;
-  }
+  if (!state.snapshot || !privateGame?.result || typeof privateGame.playerIndex !== "number") return;
 
   const result = privateGame.result;
   const resultKey = `${state.snapshot.roomId}:${result.createdAt}:${privateGame.playerIndex}`;
   const processed = loadProcessedResults();
 
-  if (processed[resultKey]) {
-    return;
-  }
+  if (processed[resultKey]) return;
 
   const row = result.playerRows[privateGame.playerIndex];
-
-  if (!row) {
-    return;
-  }
+  if (!row) return;
 
   const stats = loadStats();
   const name = row.name;
 
   if (!stats[name]) {
-    stats[name] = {
-      wins: 0,
-      games: 0,
-    };
+    stats[name] = { wins: 0, games: 0 };
   }
 
   stats[name].games += 1;
-
-  if (row.isWinner) {
-    stats[name].wins += 1;
-  }
+  if (row.isWinner) stats[name].wins += 1;
 
   processed[resultKey] = true;
-
   saveStats(stats);
   saveProcessedResults(processed);
 }
 
-function renderLocalStats() {
+function createStatsButton(label, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function renderLocalStats(result = null) {
+  refs.localStatsPanel.innerHTML = "";
+
+  const actions = document.createElement("div");
+  actions.className = "stats-actions";
+
+  actions.appendChild(createStatsButton("今回の部屋", () => {
+    state.statsMode = "room";
+    renderLocalStats(state.privateGame?.result);
+  }));
+
+  actions.appendChild(createStatsButton("自分だけ", () => {
+    state.statsMode = "mine";
+    renderLocalStats(state.privateGame?.result);
+  }));
+
+  actions.appendChild(createStatsButton("全員分", () => {
+    state.statsMode = "all";
+    renderLocalStats(state.privateGame?.result);
+  }));
+
+  actions.appendChild(createStatsButton("勝率順", () => {
+    state.statsSortByRate = !state.statsSortByRate;
+    renderLocalStats(state.privateGame?.result);
+  }));
+
+  actions.appendChild(createStatsButton("戦績リセット", () => {
+    if (confirm("この端末のローカル戦績をリセットしますか？")) {
+      localStorage.removeItem(LOCAL_STATS_KEY);
+      localStorage.removeItem(PROCESSED_RESULTS_KEY);
+      renderLocalStats(state.privateGame?.result);
+    }
+  }));
+
+  refs.localStatsPanel.appendChild(actions);
+
+  const text = document.createElement("div");
+
+  if (state.statsMode === "room" && result) {
+    const lines = ["今回の部屋の結果"];
+    result.playerRows.forEach((row) => {
+      if (row.name === "死体") return;
+      lines.push(`${row.name}: ${row.isWinner ? "勝利" : "敗北"}`);
+    });
+    text.textContent = lines.join("\n");
+    refs.localStatsPanel.appendChild(text);
+    return;
+  }
+
   const stats = loadStats();
-  const names = Object.keys(stats);
+  let names = Object.keys(stats);
+
+  if (state.statsMode === "mine") {
+    const selfPlayer = getSelfPlayer();
+    names = selfPlayer ? names.filter((name) => name === selfPlayer.name) : [];
+  }
+
+  if (state.statsSortByRate) {
+    names.sort((a, b) => {
+      const rateA = stats[a].games > 0 ? stats[a].wins / stats[a].games : 0;
+      const rateB = stats[b].games > 0 ? stats[b].wins / stats[b].games : 0;
+      return rateB - rateA;
+    });
+  } else {
+    names.sort();
+  }
 
   if (names.length === 0) {
-    refs.localStatsPanel.textContent = "ローカル戦績: まだ記録がありません";
+    text.textContent = "ローカル戦績: まだ記録がありません";
+    refs.localStatsPanel.appendChild(text);
     return;
   }
 
   const lines = ["ローカル戦績"];
 
-  names.sort().forEach((name) => {
+  names.forEach((name) => {
     const item = stats[name];
     const rate = item.games > 0 ? Math.round((item.wins / item.games) * 100) : 0;
     lines.push(`${name}: ${item.wins}勝/${item.games}戦 勝率${rate}%`);
   });
 
-  refs.localStatsPanel.textContent = lines.join("\n");
+  text.textContent = lines.join("\n");
+  refs.localStatsPanel.appendChild(text);
 }
 
 function buildResultText(result) {
-  if (!result) {
-    return "結果を取得中です。";
-  }
+  if (!result) return "結果を取得中です。";
 
   return [
     "結果",
@@ -784,82 +827,74 @@ function buildResultText(result) {
   ].join("\n");
 }
 
-function renderResultTable(result) {
-  clearResultTable();
+function renderResultCards(result, selfIndex) {
+  clearResultCards();
+  if (!result) return;
 
-  if (!result) {
-    return;
-  }
+  const headline = document.createElement("div");
+  headline.className = `result-headline ${result.resultType === "village" ? "result-blue" : "result-red"}`;
+  headline.textContent = result.headline;
+  refs.resultCardsWrap.appendChild(headline);
 
-  const table = document.createElement("table");
+  const meta = document.createElement("div");
+  meta.className = "result-meta";
+  meta.textContent = [
+    `勝者: ${result.winnerNames.length > 0 ? result.winnerNames.join("、") : "なし"}`,
+    ...result.metaLines,
+  ].join("\n");
+  refs.resultCardsWrap.appendChild(meta);
 
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
+  result.playerRows.forEach((row, index) => {
+    const card = document.createElement("div");
+    card.className = `result-card ${index === selfIndex ? "self" : ""}`;
 
-  ["名前", "役職履歴", "投票先", "処刑", "勝敗"].forEach((label) => {
-    const th = document.createElement("th");
-    th.textContent = label;
-    headRow.appendChild(th);
+    const title = document.createElement("div");
+    title.className = "result-card-title";
+    title.textContent = row.name;
+
+    const body = document.createElement("div");
+    body.className = "result-card-line";
+    body.textContent = [
+      `役職: ${row.roleHistory}`,
+      `投票先: ${row.voteTarget}`,
+      `処刑: ${row.isEliminated ? "あり" : "なし"}`,
+      `勝敗: ${row.isWinner ? "勝利" : "敗北"}`,
+    ].join("\n");
+
+    card.appendChild(title);
+    card.appendChild(body);
+    refs.resultCardsWrap.appendChild(card);
   });
-
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
-
-  result.playerRows.forEach((row) => {
-    const tr = document.createElement("tr");
-
-    const values = [
-      row.name,
-      row.roleHistory,
-      row.voteTarget,
-      row.isEliminated ? "処刑" : "",
-      row.isWinner ? "勝利" : "敗北",
-    ];
-
-    values.forEach((value) => {
-      const td = document.createElement("td");
-      td.textContent = value;
-      tr.appendChild(td);
-    });
-
-    tbody.appendChild(tr);
-  });
-
-  table.appendChild(tbody);
-  refs.resultTableWrap.appendChild(table);
 }
 
 function renderGamePanel() {
   clearGameButtons();
-  clearResultTable();
+  clearResultCards();
 
   if (!state.snapshot) {
     refs.gamePanel.classList.add("hidden");
-    refs.localStatsPanel.textContent = "";
+    refs.localStatsPanel.innerHTML = "";
     return;
   }
 
   refs.gamePanel.classList.toggle("hidden", state.snapshot.phase !== "started");
 
   if (state.snapshot.phase !== "started") {
-    refs.localStatsPanel.textContent = "";
+    refs.localStatsPanel.innerHTML = "";
     return;
   }
 
-  const settings = normalizeOnlineSettings(state.snapshot.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
-    includeManual: false,
-  });
-
+  const settings = normalizeOnlineSettings(state.snapshot.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS);
   const privateGame = state.privateGame;
   const gamePublic = state.snapshot.gamePublic;
 
   if (!privateGame) {
-    refs.gameStatusText.textContent = [
-      "ゲーム開始状態です。",
-      "役職情報を取得中です。",
-    ].join("\n");
+    refs.gameStatusText.textContent = "ゲーム開始状態です。\n役職情報を取得中です。";
+    return;
+  }
+
+  if (privateGame.phase === "waiting") {
+    refs.gameStatusText.textContent = privateGame.message || "待機枠です。";
     return;
   }
 
@@ -896,7 +931,7 @@ function renderGamePanel() {
     }
 
     refs.gameStatusText.textContent = lines.join("\n");
-    refs.localStatsPanel.textContent = "";
+    refs.localStatsPanel.innerHTML = "";
     renderNightButtons(privateGame);
     return;
   }
@@ -910,7 +945,7 @@ function renderGamePanel() {
       isHost() ? "ホストは任意で投票フェーズへ進めます。" : "ホストが投票フェーズへ進めるまで待機します。",
     ].filter(Boolean).join("\n");
 
-    refs.localStatsPanel.textContent = "";
+    refs.localStatsPanel.innerHTML = "";
     renderDiscussionButtons();
     return;
   }
@@ -920,7 +955,7 @@ function renderGamePanel() {
       "投票フェーズです。",
       `あなたの役職: ${privateGame.initialRole}`,
       getCountdownLine("投票", gamePublic?.voteDeadlineAt),
-    ].filter(Boolean);
+    ];
 
     if (privateGame.isVoteComplete) {
       lines.push("");
@@ -933,7 +968,7 @@ function renderGamePanel() {
     }
 
     refs.gameStatusText.textContent = lines.join("\n");
-    refs.localStatsPanel.textContent = "";
+    refs.localStatsPanel.innerHTML = "";
     renderVoteButtons(privateGame);
     return;
   }
@@ -957,7 +992,7 @@ function renderGamePanel() {
     }
 
     refs.gameStatusText.textContent = lines.join("\n");
-    refs.localStatsPanel.textContent = "";
+    refs.localStatsPanel.innerHTML = "";
     renderHunterButtons(privateGame);
     return;
   }
@@ -965,15 +1000,13 @@ function renderGamePanel() {
   if (privateGame.phase === "result") {
     updateLocalStatsFromResult(privateGame);
     refs.gameStatusText.textContent = buildResultText(privateGame.result);
-    renderResultTable(privateGame.result);
-    renderLocalStats();
+    renderResultCards(privateGame.result, privateGame.playerIndex);
+    renderLocalStats(privateGame.result);
+    renderResultButtons();
     return;
   }
 
-  refs.gameStatusText.textContent = [
-    "ゲーム進行中です。",
-    `現在フェーズ: ${privateGame.phase}`,
-  ].join("\n");
+  refs.gameStatusText.textContent = `ゲーム進行中です。\n現在フェーズ: ${privateGame.phase}`;
 }
 
 function renderHostDisconnectWarning() {
@@ -982,8 +1015,57 @@ function renderHostDisconnectWarning() {
     return;
   }
 
-  const hasDisconnected = state.snapshot.players.some((player) => !player.connected);
-  refs.hostDisconnectWarning.classList.toggle("hidden", !hasDisconnected);
+  const disconnectedPlayers = state.snapshot.players.filter((player) => !player.connected);
+
+  if (disconnectedPlayers.length === 0) {
+    refs.hostDisconnectWarning.classList.add("hidden");
+    return;
+  }
+
+  refs.hostDisconnectWarning.textContent = `${disconnectedPlayers.map((player) => player.name).join("、")}が切断中です。`;
+  refs.hostDisconnectWarning.classList.remove("hidden");
+}
+
+function renderSoundToggle() {
+  refs.soundToggleBtn.textContent = state.soundEnabled ? "効果音・バイブ ON" : "効果音・バイブ OFF";
+}
+
+function playNotify() {
+  if (!state.soundEnabled) return;
+
+  try {
+    const context = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.frequency.value = 880;
+    gain.gain.value = 0.05;
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.12);
+  } catch {
+    // ignore
+  }
+
+  if (navigator.vibrate) {
+    navigator.vibrate([80]);
+  }
+}
+
+function notifyPhaseChange() {
+  const phaseKey = `${state.snapshot?.roomId || ""}:${state.snapshot?.gamePublic?.phase || state.snapshot?.phase || ""}`;
+
+  if (!state.lastPhaseKey) {
+    state.lastPhaseKey = phaseKey;
+    return;
+  }
+
+  if (state.lastPhaseKey !== phaseKey) {
+    state.lastPhaseKey = phaseKey;
+    playNotify();
+  }
 }
 
 function render() {
@@ -994,13 +1076,13 @@ function render() {
   if (!hasSnapshot) {
     renderReconnectArea();
     renderGamePanel();
+    renderSoundToggle();
     return;
   }
 
-  const settings = normalizeOnlineSettings(state.snapshot.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS, {
-    includeManual: false,
-  });
+  const settings = normalizeOnlineSettings(state.snapshot.settings || DEFAULT_SETTINGS, DEFAULT_SETTINGS);
   const playerCount = state.snapshot.players.length;
+  const entryPlayers = state.snapshot.players.slice(0, settings.playerCount);
 
   refs.roomCodeText.textContent = state.snapshot.roomId;
   refs.phaseText.textContent = getPhaseLabel(state.snapshot);
@@ -1009,21 +1091,27 @@ function render() {
   renderSettings();
   renderPlayerTable();
   renderHostDisconnectWarning();
+  renderSoundToggle();
+
+  refs.lobbyNameInput.value = getSelfPlayer()?.name || "";
 
   refs.hostControls.classList.toggle("hidden", !isHost());
 
   const canStart = isHost()
     && state.snapshot.phase === "lobby"
-    && playerCount === settings.playerCount
-    && playerCount >= MIN_PLAYERS
-    && playerCount <= MAX_PLAYERS
-    && state.snapshot.players.every((player) => player.connected);
+    && playerCount >= settings.playerCount
+    && entryPlayers.every((player) => player.connected);
 
   refs.startGameBtn.classList.toggle("hidden", !(isHost() && state.snapshot.phase === "lobby"));
   refs.startGameBtn.disabled = !canStart;
-  refs.startGameBtn.textContent = canStart
-    ? "開始"
-    : `開始（${playerCount}/${settings.playerCount}人）`;
+
+  if (playerCount < settings.playerCount) {
+    refs.startGameBtn.textContent = `開始（${playerCount}/${settings.playerCount}人）`;
+  } else if (!entryPlayers.every((player) => player.connected)) {
+    refs.startGameBtn.textContent = "開始（参加枠に切断者あり）";
+  } else {
+    refs.startGameBtn.textContent = "開始";
+  }
 
   refs.backToLobbyBtn.classList.toggle(
     "hidden",
@@ -1040,10 +1128,7 @@ refs.reconnectBtn.addEventListener("click", reconnect);
 refs.overlayReconnectBtn.addEventListener("click", reconnect);
 
 refs.copyRoomCodeBtn.addEventListener("click", async () => {
-  if (!state.snapshot) {
-    return;
-  }
-
+  if (!state.snapshot) return;
   await navigator.clipboard.writeText(state.snapshot.roomId);
   setStatus("ルームコードをコピーしました");
 });
@@ -1062,6 +1147,14 @@ refs.backToLobbyBtn.addEventListener("click", () => {
 });
 
 refs.saveSettingsBtn.addEventListener("click", saveSettings);
+refs.changeNameBtn.addEventListener("click", changeName);
+
+refs.soundToggleBtn.addEventListener("click", () => {
+  state.soundEnabled = !state.soundEnabled;
+  localStorage.setItem(SOUND_SETTING_KEY, String(state.soundEnabled));
+  renderSoundToggle();
+  if (state.soundEnabled) playNotify();
+});
 
 refs.settingPlayerCount.addEventListener("change", () => {
   const settings = collectSettingsFromForm();
@@ -1110,9 +1203,14 @@ if (roomParam) {
 state.session = loadSession();
 renderReconnectArea();
 renderLocalStats();
+renderSoundToggle();
 
 setInterval(() => {
   if (state.snapshot?.phase === "started") {
     renderGamePanel();
+  }
+
+  if (!state.socketConnected && !state.connecting && state.session) {
+    connectSocket(state.session, true);
   }
 }, 1000);
